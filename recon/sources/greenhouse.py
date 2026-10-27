@@ -1,7 +1,8 @@
 import httpx
 from recon.models import Job
+from recon.text import strip_html
 
-URL = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
+URL = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
 
 
 async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
@@ -18,5 +19,6 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             posted_at=j.get("first_published") or j.get("updated_at"),
             source="greenhouse",
             tier=int(company["tier"]),
+            description=strip_html(j.get("content")),
         ))
     return jobs

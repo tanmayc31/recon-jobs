@@ -11,3 +11,4 @@ class Job:
     posted_at: str | None  # what the site claims (may be unreliable)
     source: str
     tier: int
+    description: str = ""  # plain text
