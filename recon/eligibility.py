@@ -63,26 +63,64 @@ def is_soft(reason: str, text: str, m: re.Match) -> bool:
     return bool(SOFT_CLEARANCE.search(sentence(text, m)))
 
 
+# Palantir splits "What We Value" (nice to have) from "What We Require"
+VALUE = re.compile(r"what\s+we\s+value", re.I)
+REQUIRE = re.compile(r"what\s+we\s+require", re.I)
+
+
+def under_value(text: str, m: re.Match) -> bool:
+    """True if the nearest heading above the match is "What We Value"."""
+    v = [h.start() for h in VALUE.finditer(text, 0, m.start())]
+    r = [h.start() for h in REQUIRE.finditer(text, 0, m.start())]
+    return bool(v) and (not r or v[-1] > r[-1])
+
+
+# The role itself is senior ("We're looking for a Senior Software Engineer"),
+# not "working alongside senior engineers"
+SENIOR_ROLE = re.compile(
+    r"(looking\s+for|seeking|hiring)\s+(an?\s+)?(experienced\s+)?(senior|staff|principal|sr\.?)\s+"
+    r"(\w+\s+){0,2}(engineer|developer)|"
+    r"\bas\s+an?\s+(senior|staff|principal|sr\.?)\s+(\w+\s+){0,2}(engineer|developer)",
+    re.I,
+)
+
+
 def min_years(text: str) -> int | None:
-    """Smallest years-of-experience number mentioned (lenient: keeps borderline jobs)."""
-    found = []
-    for m in YEARS.finditer(text or ""):
+    """Headline years ask: largest number in each sentence, then smallest across sentences.
+
+    "5+ years, including 3+ years in infra" -> 5. Separate sentences stay lenient.
+    """
+    text = text or ""
+    groups, prev_end = [], None
+    for m in YEARS.finditer(text):
         if SOFT_YEARS.search(sentence(text, m)):
             continue
         raw = m.group(1).lower()
         n = NUM_WORDS.get(raw) or int(raw)
-        if 0 < n <= 20:
-            found.append(n)
-    return min(found) if found else None
+        if not 0 < n <= 20:
+            continue
+        # new sentence if punctuation sits between this match and the last one
+        if prev_end is None or END.search(text, prev_end, m.start()) or m.start() - prev_end > AHEAD:
+            groups.append([])
+        groups[-1].append(n)
+        prev_end = m.end()
+    return min(max(g) for g in groups) if groups else None
 
 
-def check(text: str) -> tuple[bool, str | None, int | None]:
-    """Returns (ok, skip_reason, min_years)."""
+def check(text: str) -> tuple[bool, str | None, int | None, list[str]]:
+    """Returns (ok, skip_reason, min_years, flags)."""
     text = text or ""
+    flags = []
     for reason, rx in BLOCKERS.items():
-        if any(not is_soft(reason, text, m) for m in rx.finditer(text)):
-            return False, reason, min_years(text)
+        hard = [m for m in rx.finditer(text) if not is_soft(reason, text, m)]
+        if reason == "citizenship/clearance" and hard and all(under_value(text, m) for m in hard):
+            flags.append("clearance preferred")
+            continue
+        if hard:
+            return False, reason, min_years(text), flags
     yrs = min_years(text)
+    if SENIOR_ROLE.search(text):
+        return False, "senior role", yrs, flags
     if yrs is not None and yrs > MAX_YEARS:
-        return False, f"{yrs}+ years", yrs
-    return True, None, yrs
+        return False, f"{yrs}+ years", yrs, flags
+    return True, None, yrs, flags

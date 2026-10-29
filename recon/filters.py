@@ -5,7 +5,7 @@ from recon.models import Job
 # 1. Role: title must name an engineering role...
 ROLE = re.compile(
     r"software|\bswe\b|\bsde\b|full[\s-]?stack|backend|back[\s-]end|frontend|front[\s-]end|"
-    r"cloud|platform|infrastructure|forward deployed|devops|site reliability|\bsre\b",
+    r"\bcloud\b|platform|infrastructure|forward deployed|devops|site reliability|\bsre\b",
     re.I,
 )
 # ...and must actually be an engineer/developer (drops "FP&A Analyst, Cloud Finance")
@@ -17,7 +17,10 @@ EXCLUDE = re.compile(
     r"iii|iv|phd|intern|internship|co-?op|high school|apprentice|"
     r"sales|account executive|recruiter|marketing|analyst|consultant|strategist|"
     r"solutions engineer|partner|electrical|mechanical|hardware|support engineer|"
-    r"quality assurance|\bqa\b|test engineer|contract|ftc|temporary|data center)\b"
+    r"quality assurance|\bqa\b|test engineer|contract|ftc|temporary|data center|"
+    # specialty tracks (ML hardware, OS, devices) - not general SWE
+    r"compilers?|accelerators?|kernel|silicon|firmware|embedded|robotics|consumer devices|"
+    r"tpus?|gpus?|hpc|rdma)\b"
     r"|engineer\s*(3|4|5)\b|\bl[5-9]\b",
     re.I,
 )
@@ -39,8 +42,13 @@ NON_US = re.compile(
     re.I,
 )
 
-# Vague locations: keep, but flag
-VAGUE = re.compile(r"^\s*(n/?a|na|hybrid|in-office|distributed|remote|tbd|multiple locations)?\s*$", re.I)
+# Vague locations: keep, but flag ("Hybrid; In-Office" counts too)
+VAGUE_WORD = r"(n/?a|na|hybrid|in-office|distributed|remote|tbd|multiple locations)"
+VAGUE = re.compile(rf"^\s*({VAGUE_WORD}(\s*[;,/|]\s*{VAGUE_WORD})*)?\s*$", re.I)
+# Cloudflare puts the real city in the description: "Available Locations: London About ..."
+AVAILABLE = re.compile(
+    r"Available Locations?:\s*(.{1,100}?)(?=\s+(?:About|What|We|We're|Our|The|Role)\b|\n|$)")
+CONNECTOR = re.compile(r"\s(?:or|and)\s")   # lowercase only, so "Portland, OR" survives
 SECURITY_ONLY = re.compile(r"security engineer", re.I)
 
 # 4. Flags: keep the job, but mark it for a closer look (seed of Lane C)
@@ -67,6 +75,10 @@ def classify(job: Job) -> tuple[bool, list[str]]:
     if SECURITY_ONLY.search(t) and not re.search(r"software", t, re.I):
         return False, []
     loc = location_status(job.location)
+    if loc == "vague":
+        m = AVAILABLE.search(job.description or "")
+        if m:
+            loc = location_status(CONNECTOR.sub("; ", m.group(1)))
     if loc == "no":
         return False, []
     flags = []

@@ -45,11 +45,12 @@ async def run():
         keep, flags = classify(j)                 # stage 1: title + location
         if not keep:
             continue
-        ok, reason, yrs = eligibility.check(j.description)   # stage 2: description
+        ok, reason, yrs, desc_flags = eligibility.check(j.description)   # stage 2: description
         if not ok:
             skipped["too many years" if "years" in reason else reason] += 1
             store.upsert(j, "skip", reason, yrs)
             continue
+        flags = flags + desc_flags
         is_new = store.upsert(j, "match", ", ".join(flags) or None, yrs)
         if is_new:
             new_matches.append((j, flags, yrs))

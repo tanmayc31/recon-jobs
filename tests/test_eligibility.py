@@ -58,6 +58,43 @@ def test_soft_clearance():
     assert check(prev)[1] == "citizenship/clearance"
 
 
+def test_clearance_under_what_we_value():
+    # Real Palantir "Software Engineer, New Grad": clearance is a value, not a requirement
+    value = ("What We Value Ability to communicate and collaborate with a variety of individuals, including "
+             "engineers, users and non-technical team members. Willingness to learn and make decisions "
+             "independently, and the ability to ask questions effectively. Active US Security clearance, or "
+             "eligibility and willingness to obtain a US Security clearance. What We Require Engineering "
+             "background in fields such as Computer Science, Mathematics, Software Engineering, and Physics.")
+    ok, reason, _, flags = check(value)
+    assert ok and flags == ["clearance preferred"]
+    # Real Palantir "FDSE, New Grad - US Government": under What We Require, still blocked
+    require = ("What We Value Willingness and interest to travel as needed to client sites. What We Require "
+               "Active US Security clearance or eligibility and willingness to obtain a US Security clearance. "
+               "Engineering background, preferred in fields such as Computer Science, Mathematics.")
+    assert check(require)[1] == "citizenship/clearance"
+
+
+def test_senior_role_in_description():
+    # Real Cloudflare "Software Engineer, Mobile SDK"
+    assert check("What you'll do We're looking for a Senior Software Engineer to join our WARP Mobile SDK "
+                 "team")[1] == "senior role"
+    assert check("As a senior software engineer, you will set standards for compatibility")[1] == "senior role"
+    # Real Stripe: working with seniors is fine
+    assert check("on for critical infrastructure, working alongside senior engineers to debug and resolve "
+                 "production issues")[0]
+
+
+def test_years_headline_number():
+    # Real OpenAI "Software Engineer, Developer Productivity"
+    dev_prod = ("Have 5+ years of experience in engineering, including 3+ years of experience in "
+                "infrastructure building tooling for developers.")
+    assert min_years(dev_prod) == 5
+    assert check(dev_prod)[1] == "5+ years"
+    # Separate sentences: smallest wins (lenient)
+    assert min_years("2+ years of software engineering experience. 6+ years of professional experience "
+                     "leading teams.") == 2
+
+
 def test_soft_years():
     assert min_years("6+ years of software engineering experience preferred.") is None
     assert min_years("2+ years of experience required. 7+ years of industry experience is a plus.") == 2
