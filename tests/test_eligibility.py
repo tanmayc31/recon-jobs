@@ -1,4 +1,4 @@
-from recon.eligibility import check, min_years
+from recon.eligibility import check, early_start, experience_cap, grad_outside, min_years
 
 
 def test_years():
@@ -99,3 +99,58 @@ def test_soft_years():
     assert min_years("6+ years of software engineering experience preferred.") is None
     assert min_years("2+ years of experience required. 7+ years of industry experience is a plus.") == 2
     assert check("Bonus: 8+ years of professional experience with Rust")[0]
+
+
+# Real Stripe "Software Engineer, Early Career — Immediate Start"
+STRIPE_EARLY = ("Minimum requirements Must be available to start full-time before December 1, 2026 A Bachelor’s "
+                "or Master’s degree in computer science or a directly related field, obtained by summer 2026, or "
+                "equivalent work experience New grad candidates should have no more than 18 months of "
+                "professional experience (excluding internship experience) Experience and familiarity with "
+                "programming")
+
+
+def test_experience_cap():
+    assert experience_cap(STRIPE_EARLY)
+    # Real Notion, OpenAI, MongoDB
+    assert check("SKILLS YOU'LL NEED TO BRING\n\n - You have less than two years of engineering experience. "
+                 "You have solid fundamentals")[1] == "experience cap"
+    assert check("- 0-1 years of experience in software engineering or a relevant field")[1] == "experience cap"
+    assert check("Recent graduates (including Summer 2026) or professionals with up to 18 months of "
+                 "experience.")[1] == "experience cap"
+    # Caps on internship experience don't count; caps of 3+ years don't block
+    assert not experience_cap("no more than 6 months of internship experience")
+    assert not experience_cap("less than 5 years of professional experience")
+
+
+def test_start_date():
+    assert early_start(STRIPE_EARLY)
+    # Real Notion "New Grad (Dec 2026)": January start is fine
+    notion = ("To be eligible for this role, you need to graduate by Dec 2026 and be able to start FTE by "
+              "January/February 2027.")
+    assert check(notion)[0]
+    assert check("Must be able to start no later than November 2026.")[1] == "start date"
+    ok, _, _, flags = check("Software Engineer, Early Career — Immediate Start. Great team.")
+    assert ok and flags == ["early start?"]
+
+
+def test_graduation_window():
+    # Real Stripe "Security Engineer, New Grad"
+    assert check("Currently enrolled in a Bachelor’s or Master’s program in Computer Science or related field "
+                 "(graduating by Summer 2026) Some exp")[1] == "graduation date"
+    # Real Databricks: Fall 2026–Summer 2027 includes Dec 2026; Fall 2027–Summer 2028 does not
+    assert check("What we look for: You will graduate between Fall 2026 and Summer 2027 with a bachelors")[0]
+    assert check("What we look for: You will graduate between fall 2027 and Summer 2028 with a degree in "
+                 "Computer Science")[1] == "graduation date"
+    # Real Stripe "obtained by summer 2027" is fine
+    assert not grad_outside("in a directly related field, obtained by summer 2027, or equivalent work")
+
+
+def test_us_person():
+    # Real Palantir "Forward Deployed Software Engineer - Warp Speed" and its New Grad variant
+    assert check("iteration with users What We Require U.S. Person Required 1+ years of relevant, post-college "
+                 "work experience.")[1] == "citizenship/clearance"
+    assert check("What We Require U.S. Person Required Must be graduating in December 2026 or Spring 2027 Strong "
+                 "engineering background, preferred in fields such as Computer Science")[1] == "citizenship/clearance"
+    # Real OpenAI "Backend Software Engineer, Gov"
+    assert check("This position requires U.S. person status as defined by the applicable government "
+                 "contract.")[1] == "citizenship/clearance"

@@ -22,7 +22,9 @@ BLOCKERS = {
         r"u\.?s\.?\s+citizen(ship)?\s+(is\s+)?required|must\s+be\s+(a\s+)?u\.?s\.?\s+citizen|"
         r"(security\s+)?clearance\s+(is\s+)?required|active\s+(secret|top\s+secret|ts/sci)|"
         r"(obtain|maintain|eligible\s+for)\s+(a\s+|an\s+)?(u\.?s\.?\s+)?(government\s+)?security\s+clearance|"
-        r"\bitar\b|export\s+control(led)?\s+.{0,40}u\.?s\.?\s+person",
+        r"\bitar\b|export\s+control(led)?\s+.{0,40}u\.?s\.?\s+person|"
+        r"\bu\.?s\.?\s+person\s+(status\s+)?required|requires\s+\bu\.?s\.?\s+person|"
+        r"must\s+be\s+(a\s+)?\bu\.?s\.?\s+person",
         re.I,
     ),
     "no sponsorship": re.compile(
@@ -60,7 +62,89 @@ def sentence(text: str, m: re.Match) -> str:
 def is_soft(reason: str, text: str, m: re.Match) -> bool:
     if reason == "no sponsorship":
         return bool(EXPORT_LICENSE.match(text, m.end()))
+    if re.search(r"requir|must", m.group(0), re.I):
+        return False   # "U.S. Person Required" is hard even if a later bullet says "preferred"
     return bool(SOFT_CLEARANCE.search(sentence(text, m)))
+
+
+# --- Early-career windows: experience caps, start dates, graduation dates ---
+YOU_GRADUATE = (2026, 12)   # (year, month)
+EARLIEST_START = (2027, 1)
+MIN_CAP_YEARS = 3           # block caps below this ("no more than 18 months")
+
+MONTH = (r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|"
+         r"sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?")
+SEASON = r"spring|summer|fall|autumn|winter"
+# "December 1, 2026", "Dec 2026", "summer 2026", "January/February 2027"
+DATE = rf"(?:{MONTH}|{SEASON})(?:\s*/\s*(?:{MONTH}|{SEASON}))?\.?\s+(?:\d{{1,2}},?\s+)?20\d\d"
+SEASONS = {"spring": (3, 5), "summer": (6, 8), "fall": (9, 11), "autumn": (9, 11), "winter": (12, 2)}
+
+
+def period(s: str) -> tuple[tuple[int, int], tuple[int, int]]:
+    """'summer 2026' -> ((2026, 6), (2026, 8)); 'January/February 2027' -> ((2027, 1), (2027, 2))."""
+    year = int(re.search(r"20\d\d", s).group(0))
+    spans = []
+    for w in re.findall(rf"{MONTH}|{SEASON}", s, re.I):
+        w = w.lower()
+        if w in SEASONS:
+            a, b = SEASONS[w]
+            spans.append(((year - 1, 12), (year, 2)) if w == "winter" else ((year, a), (year, b)))
+        else:
+            m = next(i for i, k in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug",
+                                              "sep", "oct", "nov", "dec"], 1) if w.startswith(k))
+            spans.append(((year, m), (year, m)))
+    return spans[0][0], spans[-1][1]
+
+
+NUM = r"\d{1,2}|" + "|".join(NUM_WORDS)
+CAP = re.compile(
+    rf"(no\s+more\s+than|not\s+more\s+than|less\s+than|fewer\s+than|at\s+most|up\s+to|maximum\s+of)\s+"
+    rf"(?P<n>{NUM})\s+(?P<unit>months?|years?)\b(?P<rest>[^.\n]{{0,40}}?)\bexperience|"
+    rf"\b0\s*(?:-|–|to)\s*(?P<n2>\d{{1,2}})\s*\+?\s*(?P<unit2>months?|years?|yrs?)(?:\(s\))?"
+    rf"(?P<rest2>[^.\n]{{0,40}}?)\bexperience",
+    re.I,
+)
+START = re.compile(
+    rf"\b(start|begin)(s|ing)?\b[^.\n]{{0,40}}?\b(?P<op>before|by|no\s+later\s+than)\s+(?P<d>{DATE})", re.I)
+IMMEDIATE = re.compile(r"\bimmediate(ly)?\s+start|start\s+immediately", re.I)
+GRAD_BY = re.compile(
+    rf"\b(graduat\w*|obtained)\s+(?P<op>before|by|no\s+later\s+than)\s+(?P<d>{DATE})", re.I)
+GRAD_BETWEEN = re.compile(rf"\bgraduat\w*\s+between\s+(?P<a>{DATE})\s+and\s+(?P<b>{DATE})", re.I)
+
+
+def experience_cap(text: str) -> re.Match | None:
+    """'no more than 18 months of professional experience' -> match if the cap is under 3 years."""
+    for m in CAP.finditer(text or ""):
+        n, unit, rest = (m["n"], m["unit"], m["rest"]) if m["n"] else (m["n2"], m["unit2"], m["rest2"])
+        if "intern" in rest.lower():
+            continue   # caps on internship experience don't apply to full-time history
+        n = NUM_WORDS.get(n.lower()) or int(n)
+        if (n / 12 if unit.lower().startswith("month") else n) < MIN_CAP_YEARS:
+            return m
+    return None
+
+
+def early_start(text: str) -> re.Match | None:
+    """'must start before December 1, 2026' -> match if the deadline is before Jan 2027."""
+    for m in START.finditer(text or ""):
+        first, last = period(m["d"])
+        deadline = first if m["op"].lower() == "before" else last
+        if deadline < EARLIEST_START:
+            return m
+    return None
+
+
+def grad_outside(text: str) -> re.Match | None:
+    """Graduation window that excludes December 2026."""
+    text = text or ""
+    for m in GRAD_BY.finditer(text):
+        first, last = period(m["d"])
+        if (m["op"].lower() == "before" and first <= YOU_GRADUATE) or last < YOU_GRADUATE:
+            return m
+    for m in GRAD_BETWEEN.finditer(text):
+        if not period(m["a"])[0] <= YOU_GRADUATE <= period(m["b"])[1]:
+            return m
+    return None
 
 
 # Palantir splits "What We Value" (nice to have) from "What We Require"
@@ -121,6 +205,14 @@ def check(text: str) -> tuple[bool, str | None, int | None, list[str]]:
     yrs = min_years(text)
     if SENIOR_ROLE.search(text):
         return False, "senior role", yrs, flags
+    if experience_cap(text):
+        return False, "experience cap", yrs, flags
+    if early_start(text):
+        return False, "start date", yrs, flags
+    if grad_outside(text):
+        return False, "graduation date", yrs, flags
     if yrs is not None and yrs > MAX_YEARS:
         return False, f"{yrs}+ years", yrs, flags
+    if IMMEDIATE.search(text):
+        flags.append("early start?")
     return True, None, yrs, flags
