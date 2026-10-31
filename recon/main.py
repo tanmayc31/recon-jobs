@@ -12,13 +12,27 @@ from recon.store import Store
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
+REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
 MAX_PARALLEL = 5  # be polite
 
 
-def load_companies(path: Path = COMPANIES) -> list[dict]:
+def load_referrals(path: Path = REFERRALS) -> dict[str, str]:
+    """company (lowercase) -> contact. Missing file means no referrals."""
+    if not path.exists():
+        return {}
     with open(path) as f:
-        return list(csv.DictReader(f))
+        return {r["company"].strip().lower(): r["contact"].strip()
+                for r in csv.DictReader(f) if (r.get("contact") or "").strip()}
+
+
+def load_companies(path: Path = COMPANIES, referrals: Path = REFERRALS) -> list[dict]:
+    with open(path) as f:
+        companies = list(csv.DictReader(f))
+    contacts = load_referrals(referrals)
+    for c in companies:
+        c["referral"] = contacts.get(c["company"].lower(), "")
+    return companies
 
 
 async def fetch_company(client, sem, company):
@@ -68,11 +82,14 @@ async def run():
         print(f"\n🆕 {len(new_matches)} new matches since last run\n")
         show = new_matches
 
+    referral = {c["company"]: c["referral"] for c in companies}
     show.sort(key=lambda m: (m[0].tier, m[0].company))
     for j, flags, yrs in show:
         tags = flags + ([f"{yrs}+ yrs"] if yrs else [])
         tag = f"  [{', '.join(tags)}]" if tags else ""
         print(f"[T{j.tier}] {j.company} | {j.title} | {j.location}{tag}\n      {j.url}")
+        if referral.get(j.company):
+            print(f"      referral: {referral[j.company]}")
     return new_matches
 
 

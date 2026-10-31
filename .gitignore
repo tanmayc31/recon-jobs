@@ -2,5 +2,5 @@
 __pycache__/
 .pytest_cache/
 .env
-config/companies.csv
+config/referrals.csv
 data/

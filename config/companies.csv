@@ -1,0 +1,51 @@
+company,ats,slug,tier
+Stripe,greenhouse,stripe,1
+Databricks,greenhouse,databricks,1
+Datadog,greenhouse,datadog,1
+Cloudflare,greenhouse,cloudflare,1
+MongoDB,greenhouse,mongodb,1
+Palantir,lever,palantir,1
+Airbnb,greenhouse,airbnb,2
+Robinhood,greenhouse,robinhood,2
+Coinbase,greenhouse,coinbase,2
+Figma,greenhouse,figma,2
+OpenAI,ashby,openai,2
+Ramp,ashby,ramp,2
+Notion,ashby,notion,2
+Snowflake,ashby,snowflake,1
+Scale AI,greenhouse,scaleai,1
+Anthropic,greenhouse,anthropic,1
+Plaid,ashby,plaid,1
+Instacart,greenhouse,instacart,1
+Perplexity,ashby,perplexity,2
+Cohere,ashby,cohere,2
+Glean,greenhouse,gleanwork,2
+Harvey,ashby,harvey,2
+Elastic,greenhouse,elastic,2
+GitLab,greenhouse,gitlab,2
+Twilio,greenhouse,twilio,2
+Okta,greenhouse,okta,2
+Vercel,greenhouse,vercel,2
+Supabase,ashby,supabase,2
+Brex,greenhouse,brex,2
+Block,greenhouse,block,2
+Lyft,greenhouse,lyft,2
+DoorDash,greenhouse,doordashusa,2
+Pinterest,greenhouse,pinterest,2
+Dropbox,greenhouse,dropbox,2
+HubSpot,greenhouse,hubspotjobs,2
+Toast,greenhouse,toast,2
+Klaviyo,greenhouse,klaviyo,2
+CarGurus,greenhouse,cargurus,2
+Oscar Health,greenhouse,oscar,2
+Flatiron Health,greenhouse,flatironhealth,2
+Waymo,greenhouse,waymo,2
+Zoox,lever,zoox,2
+Lucid Motors,greenhouse,lucidmotors,2
+Samsara,greenhouse,samsara,2
+Discord,greenhouse,discord,2
+Reddit,greenhouse,reddit,2
+Affirm,greenhouse,affirm,2
+Chime,greenhouse,chime,2
+Asana,greenhouse,asana,2
+Benchling,ashby,benchling,2

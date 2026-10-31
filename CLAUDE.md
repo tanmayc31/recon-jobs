@@ -9,7 +9,7 @@ Recon finds and ranks. It never applies to jobs.
 - Run `python -m pytest -q` after every change.
 - Eligibility blockers (citizenship, clearance, ITAR, explicit "no sponsorship") are hard gates.
   "Authorized to work in the US" alone is NOT a blocker.
-- Never commit secrets, data/, .venv/, or config/companies.csv.
+- Never commit secrets, data/, .venv/, or config/referrals.csv (private contacts).
 - One step at a time. Explain changes briefly in plain English.
 
 ## Layout

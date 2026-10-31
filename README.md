@@ -17,4 +17,7 @@ python -m recon.main
 python -m pytest -q
 
 ## Add a company
-Add a row to config/companies.csv: company,ats,slug,tier,referral_contact
+Add a row to config/companies.csv: company,ats,slug,tier
+
+## Referral contacts (private)
+Optional, gitignored: create config/referrals.csv with columns company,contact
