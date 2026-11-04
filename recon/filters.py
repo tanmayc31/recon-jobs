@@ -21,7 +21,7 @@ EXCLUDE = re.compile(
     # specialty tracks (ML hardware, OS, devices) - not general SWE
     r"compilers?|accelerators?|kernel|silicon|firmware|embedded|robotics|consumer devices|"
     r"tpus?|gpus?|hpc|rdma)\b"
-    r"|engineer\s*(3|4|5)\b|\bl[5-9]\b",
+    r"|engineer\s*[-–—]?\s*(3|4|5)\b|\bl[5-9]\b",
     re.I,
 )
 

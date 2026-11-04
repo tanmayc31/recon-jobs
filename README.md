@@ -19,5 +19,15 @@ python -m pytest -q
 ## Add a company
 Add a row to config/companies.csv: company,ats,slug,tier
 
+ats is greenhouse, lever, ashby or workday. For Workday, slug is `tenant|wdN|site`,
+read from the career site URL:
+
+    https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
+            tenant  wdN                  site
+    -> Nvidia,workday,nvidia|wd5|NVIDIAExternalCareerSite,2
+
+Workday search results have no descriptions, so Recon fetches the job detail only
+for jobs that pass the title + location filter.
+
 ## Referral contacts (private)
 Optional, gitignored: create config/referrals.csv with columns company,contact

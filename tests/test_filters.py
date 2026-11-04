@@ -29,7 +29,9 @@ def test_drops_senior_students_non_eng():
               "Hardware / Software CoDesign Engineer  - 3P", "Support Engineer, AI Infrastructure",
               "Software Quality Assurance Engineer",
               "Infrastructure Network & Supply Engineer - FTC (6 months)",
-              "Security Engineer, Infrastructure Security"]:
+              "Security Engineer, Infrastructure Security",
+              "Full Stack Engineer - 4 (Java, JavaScript, TypeScript, AWS)",
+              "Software Engineer – 5"]:
         assert not is_match(job(t)), t
 
 
