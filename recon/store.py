@@ -1,4 +1,7 @@
-"""SQLite memory: remembers every job so we only alert on NEW ones."""
+"""Memory: remembers every job so we only alert on NEW ones.
+
+SQLite locally by default; Postgres (e.g. Supabase) when given a DATABASE_URL.
+"""
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,24 +35,36 @@ def now() -> str:
 
 
 class Store:
-    def __init__(self, path: Path = DB):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+    def __init__(self, path: Path = DB, url: str | None = None):
+        if url:
+            import psycopg   # only needed for Postgres
+            # prepare_threshold=None: Supabase's pooler can't handle prepared statements
+            self.db = psycopg.connect(url, prepare_threshold=None)
+            self.placeholder = "%s"
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.db = sqlite3.connect(path)
+            self.placeholder = "?"
         self.db.execute(SCHEMA)
+        self.db.commit()
+
+    def execute(self, sql: str, params: tuple = ()):
+        """Run SQL written with ? placeholders on either backend."""
+        return self.db.execute(sql.replace("?", self.placeholder), params)
 
     def is_empty(self) -> bool:
-        return self.db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
+        return self.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
 
     def upsert(self, job: Job, decision: str, reason: str | None, min_years: int | None) -> bool:
         """Save the job. Returns True if this is the first time we've seen it."""
         t = now()
-        cur = self.db.execute(
+        cur = self.execute(
             "UPDATE jobs SET last_seen_at=?, decision=?, reason=?, min_years=? WHERE job_id=?",
             (t, decision, reason, min_years, job.job_id),
         )
         if cur.rowcount:
             return False
-        self.db.execute(
+        self.execute(
             "INSERT INTO jobs (job_id, company, title, location, url, source, tier, posted_at,"
             " first_seen_at, last_seen_at, decision, reason, min_years) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (job.job_id, job.company, job.title, job.location, job.url, job.source, job.tier,
@@ -59,3 +74,6 @@ class Store:
 
     def commit(self):
         self.db.commit()
+
+    def close(self):
+        self.db.close()

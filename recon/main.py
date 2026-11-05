@@ -1,11 +1,13 @@
 import asyncio
 import csv
+import os
 from collections import Counter
 from pathlib import Path
 
 import httpx
 
 from recon import eligibility
+from recon.env import load_env
 from recon.filters import classify
 from recon.sources import ashby, greenhouse, lever, workday
 from recon.store import Store
@@ -15,6 +17,11 @@ COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
 MAX_PARALLEL = 5  # be polite
+
+
+def quiet() -> bool:
+    """In CI (GitHub sets CI=true) logs are public: print counts only, never jobs or contacts."""
+    return bool(os.environ.get("CI"))
 
 
 def load_referrals(path: Path = REFERRALS) -> dict[str, str]:
@@ -40,7 +47,8 @@ async def fetch_company(client, sem, company):
         try:
             return await SOURCES[company["ats"]].fetch(client, company)
         except Exception as e:
-            print(f"⚠️  {company['company']}: {type(e).__name__} {e}")
+            detail = "" if quiet() else f" {e}"   # error text can contain URLs
+            print(f"⚠️  {company['company']}: {type(e).__name__}{detail}")
             return []
 
 
@@ -51,7 +59,7 @@ async def run():
         results = await asyncio.gather(*(fetch_company(client, sem, c) for c in companies))
     all_jobs = [j for jobs in results for j in jobs]
 
-    store = Store()
+    store = Store(url=os.environ.get("DATABASE_URL"))   # blank/unset -> local SQLite
     baseline = store.is_empty()
     new_matches, skipped = [], Counter()
 
@@ -69,6 +77,7 @@ async def run():
         if is_new:
             new_matches.append((j, flags, yrs))
     store.commit()
+    store.close()
 
     total = sum(1 for _ in all_jobs)
     print(f"\nChecked {len(companies)} companies, {total} jobs")
@@ -82,6 +91,9 @@ async def run():
         print(f"\n🆕 {len(new_matches)} new matches since last run\n")
         show = new_matches
 
+    if quiet():
+        return new_matches
+
     referral = {c["company"]: c["referral"] for c in companies}
     show.sort(key=lambda m: (m[0].tier, m[0].company))
     for j, flags, yrs in show:
@@ -94,4 +106,5 @@ async def run():
 
 
 if __name__ == "__main__":
+    load_env()
     asyncio.run(run())
