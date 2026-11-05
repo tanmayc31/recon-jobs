@@ -12,3 +12,4 @@ class Job:
     source: str
     tier: int
     description: str = ""  # plain text
+    updated_at: str | None = None  # site's last-edit time (Greenhouse only; others don't publish one)

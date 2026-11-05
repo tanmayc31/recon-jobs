@@ -154,3 +154,27 @@ def test_us_person():
     # Real OpenAI "Backend Software Engineer, Gov"
     assert check("This position requires U.S. person status as defined by the applicable government "
                  "contract.")[1] == "citizenship/clearance"
+
+
+def test_workday_federal_blockers():
+    # Real Workday "Software Development Engineer (US Federal)" wording
+    for text in [
+        "Workday Federal works with the Federal Government which, due to federal government security "
+        "requirements, mandates that all Workday personnel working on the contracts be United States "
+        "citizens (naturalized or native).",
+        "due to federal government security requirements, mandates all Workday personnel working on the "
+        "contracts be United States citizens (naturalized or native ).",
+        "Candidates must have the ability to obtain and maintain a U.S. government issued security clearance.",
+        "This role may require a security clearance at the TS/SCI w/CI Poly level.",
+        "An active TS/SCI w/CI Poly is preferred.",
+        "Active TS-SCI clearance.", "Top Secret/SCI eligibility.", "TS SCI with polygraph.",
+    ]:
+        assert check(text)[1] == "citizenship/clearance", text
+
+
+def test_clearance_wish_still_only_flags():
+    for text in ["Security clearance preferred.", "An active security clearance is a plus.",
+                 "Ability to obtain a U.S. government security clearance is a plus."]:
+        ok, reason, _, flags = check(text)
+        assert ok and reason is None and flags == ["clearance preferred"], text
+    assert check("Eligible for a TSA PreCheck sci-fi club")[0]   # no TS/SCI false positive

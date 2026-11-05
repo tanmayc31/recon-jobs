@@ -57,3 +57,27 @@ def test_postgres_path_same_behavior(tmp_path, monkeypatch):
 def test_blank_url_means_sqlite(tmp_path):
     s = Store(tmp_path / "t.db", url="")    # DATABASE_URL= left blank in .env
     assert isinstance(s.db, sqlite3.Connection)
+
+
+def test_rerun_refreshes_posted_keeps_status(tmp_path):
+    s = Store(tmp_path / "t.db")
+    j = Job("workday:nvidia:JR1", "Nvidia", "SWE", "Santa Clara, CA", "u", "Posted Today", "workday", 1)
+    s.upsert(j, "match", None, None, "backlog")
+    s.execute("UPDATE jobs SET status='applied' WHERE job_id=?", (j.job_id,))   # user clicked Applied
+    j.posted_at = "Posted 2 Days Ago"
+    s.upsert(j, "match", None, None, "new")
+    assert s.execute("SELECT posted_at, status FROM jobs").fetchone() == ("Posted 2 Days Ago", "applied")
+
+
+def test_adds_updated_column_to_old_table(tmp_path):
+    old = sqlite3.connect(tmp_path / "t.db")
+    old.execute("CREATE TABLE jobs (job_id TEXT PRIMARY KEY, company TEXT, title TEXT, location TEXT,"
+                " url TEXT, source TEXT, tier INTEGER, posted_at TEXT, first_seen_at TEXT, last_seen_at TEXT,"
+                " decision TEXT, reason TEXT, min_years INTEGER, status TEXT DEFAULT 'new')")
+    old.commit()
+    old.close()
+    s = Store(tmp_path / "t.db")
+    j = Job("greenhouse:robinhood:8220757", "Robinhood", "Software Engineer, AI Security", "Bellevue, WA",
+            "u", "2026-10-09T17:58:39-04:00", "greenhouse", 2, updated_at="2026-11-05T11:50:21-05:00")
+    s.upsert(j, "match", None, None)
+    assert s.execute("SELECT site_updated_at FROM jobs").fetchone() == ("2026-11-05T11:50:21-05:00",)

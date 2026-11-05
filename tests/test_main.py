@@ -4,25 +4,46 @@ from recon import main
 from recon.models import Job
 from recon.store import Store
 
-JOB = Job("greenhouse:co:1", "Co", "Software Engineer II", "New York, NY",
-          "https://example.com/jobs/1", None, "greenhouse", 1)
+
+def job(n):
+    return Job(f"greenhouse:co:{n}", "Co", "Software Engineer II", "New York, NY",
+               f"https://example.com/jobs/{n}", None, "greenhouse", 1)
 
 
-def run_once(tmp_path, monkeypatch):
+def run_once(tmp_path, monkeypatch, jobs):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(main, "load_companies", lambda: [
         {"company": "Co", "ats": "greenhouse", "slug": "co", "tier": "1", "referral": "Jane Doe"}])
 
     async def fetch(client, sem, company):
-        return [JOB]
+        return jobs
     monkeypatch.setattr(main, "fetch_company", fetch)
     monkeypatch.setattr(main, "Store", lambda url=None: Store(tmp_path / "t.db", url))
     return asyncio.run(main.run())
 
 
+def statuses(tmp_path):
+    return dict(Store(tmp_path / "t.db").execute("SELECT job_id, status FROM jobs").fetchall())
+
+
+def test_first_run_is_backlog_then_new(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("CI", raising=False)
+    assert run_once(tmp_path, monkeypatch, [job(1)]) == []        # company's first run
+    assert "1 backlog matches" in capsys.readouterr().out
+    assert len(run_once(tmp_path, monkeypatch, [job(1), job(2)])) == 1
+    assert statuses(tmp_path) == {"greenhouse:co:1": "backlog", "greenhouse:co:2": "new"}
+
+
+def test_failed_fetch_is_not_a_first_run(tmp_path, monkeypatch):
+    run_once(tmp_path, monkeypatch, None)                         # source errored
+    run_once(tmp_path, monkeypatch, [job(1)])                     # first real run: backlog
+    assert statuses(tmp_path) == {"greenhouse:co:1": "backlog"}
+
+
 def test_ci_logs_counts_only(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CI", "true")
-    assert len(run_once(tmp_path, monkeypatch)) == 1
+    run_once(tmp_path, monkeypatch, [])
+    assert len(run_once(tmp_path, monkeypatch, [job(1)])) == 1
     out = capsys.readouterr().out
     assert "Checked 1 companies, 1 jobs" in out
     assert "Software Engineer II" not in out and "example.com" not in out and "Jane Doe" not in out
@@ -30,6 +51,7 @@ def test_ci_logs_counts_only(tmp_path, monkeypatch, capsys):
 
 def test_local_shows_jobs(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("CI", raising=False)
-    run_once(tmp_path, monkeypatch)
+    run_once(tmp_path, monkeypatch, [])
+    run_once(tmp_path, monkeypatch, [job(1)])
     out = capsys.readouterr().out
     assert "Software Engineer II" in out and "Jane Doe" in out

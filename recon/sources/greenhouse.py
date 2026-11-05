@@ -16,7 +16,8 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             title=j.get("title", ""),
             location=(j.get("location") or {}).get("name", ""),
             url=j.get("absolute_url", ""),
-            posted_at=j.get("first_published") or j.get("updated_at"),
+            posted_at=j.get("first_published"),   # updated_at is not a posted date
+            updated_at=j.get("updated_at"),
             source="greenhouse",
             tier=int(company["tier"]),
             description=strip_html(j.get("content")),

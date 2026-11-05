@@ -15,9 +15,12 @@ def run(coro):
 
 def test_greenhouse():
     payload = {"jobs": [{"id": 1, "title": "SWE", "location": {"name": "NYC"},
-                         "absolute_url": "u", "updated_at": "2026-10-22T10:00:00Z"}]}
+                         "absolute_url": "u", "first_published": "2026-10-09T17:58:39-04:00",
+                         "updated_at": "2026-11-05T11:50:21-05:00"}]}   # real Robinhood 8220757 dates
     jobs = run(greenhouse.fetch(client(payload), CO))
     assert jobs[0].job_id == "greenhouse:acme:1" and jobs[0].location == "NYC"
+    assert jobs[0].posted_at == "2026-10-09T17:58:39-04:00"
+    assert jobs[0].updated_at == "2026-11-05T11:50:21-05:00"
 
 
 def test_lever():

@@ -54,7 +54,7 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             title=p.get("title", ""),
             location="Multiple Locations" if MULTI.match(loc) else loc,
             url=f"{base}/{site}{p['externalPath']}",
-            posted_at=None,
+            posted_at=p.get("postedOn"),   # relative text: "Posted 30+ Days Ago"
             source="workday",
             tier=int(company["tier"]),
             description="",
@@ -76,5 +76,5 @@ async def add_detail(client, api, path, job, tenant):
     places = [info.get("location")] + (info.get("additionalLocations") or [])
     job.location = "; ".join(p for p in places if p) or job.location
     job.url = info.get("externalUrl") or job.url
-    job.posted_at = info.get("startDate")
+    job.posted_at = info.get("postedOn") or job.posted_at
     job.description = strip_html(info.get("jobDescription"))

@@ -19,9 +19,13 @@ YEARS = re.compile(
 
 BLOCKERS = {
     "citizenship/clearance": re.compile(
-        r"u\.?s\.?\s+citizen(ship)?\s+(is\s+)?required|must\s+be\s+(a\s+)?u\.?s\.?\s+citizen|"
+        r"u\.?s\.?\s+citizen(ship)?\s+(is\s+)?required|must\s+be\s+(a\s+)?(u\.?s\.?|united\s+states)\s+citizen|"
+        # Workday Federal: "mandates that all Workday personnel ... be United States citizens (naturalized or native)"
+        r"mandates?\s+(that\s+)?all\b[^.]{0,120}?\bbe\s+(u\.?s\.?|united\s+states)\s+citizens?|"
+        r"(u\.?s\.?|united\s+states)\s+citizens?\s*\(\s*naturalized\s+or\s+native|"
         r"(security\s+)?clearance\s+(is\s+)?required|active\s+(secret|top\s+secret|ts/sci)|"
-        r"(obtain|maintain|eligible\s+for)\s+(a\s+|an\s+)?(u\.?s\.?\s+)?(government\s+)?security\s+clearance|"
+        # a few words allowed: "obtain and maintain a U.S. government issued security clearance"
+        r"(obtain|maintain|eligible\s+for)(\s+[\w./-]+){0,6}?\s+security\s+clearance|"
         r"\bitar\b|export\s+control(led)?\s+.{0,40}u\.?s\.?\s+person|"
         r"\bu\.?s\.?\s+person\s+(status\s+)?required|requires\s+\bu\.?s\.?\s+person|"
         r"must\s+be\s+(a\s+)?\bu\.?s\.?\s+person",
@@ -37,6 +41,12 @@ BLOCKERS = {
     ),
 }
 
+
+# TS/SCI in any form ("TS/SCI", "TS-SCI", "Top Secret/SCI") blocks even when "preferred":
+# it's only open to U.S. citizens
+TS_SCI = re.compile(r"\bts\s*[/-]?\s*sci\b|top\s+secret\s*[/-]\s*sci\b", re.I)
+
+CLEARANCE = re.compile(r"\bclearance\b", re.I)
 
 # Soft words: the sentence is a wish, not a requirement
 SOFT_CLEARANCE = re.compile(r"beneficial|preferred|a\s+plus|nice\s+to\s+have|not\s+necessary", re.I)
@@ -195,13 +205,19 @@ def check(text: str) -> tuple[bool, str | None, int | None, list[str]]:
     """Returns (ok, skip_reason, min_years, flags)."""
     text = text or ""
     flags = []
+    if TS_SCI.search(text):
+        return False, "citizenship/clearance", min_years(text), flags
     for reason, rx in BLOCKERS.items():
-        hard = [m for m in rx.finditer(text) if not is_soft(reason, text, m)]
-        if reason == "citizenship/clearance" and hard and all(under_value(text, m) for m in hard):
-            flags.append("clearance preferred")
+        found = list(rx.finditer(text))
+        hard = [m for m in found if not is_soft(reason, text, m)]
+        if reason == "citizenship/clearance" and found and all(under_value(text, m) for m in hard):
+            flags.append("clearance preferred")   # only wished for ("a plus") or under "What We Value"
             continue
         if hard:
             return False, reason, min_years(text), flags
+    if "clearance preferred" not in flags and any(
+            SOFT_CLEARANCE.search(sentence(text, m)) for m in CLEARANCE.finditer(text)):
+        flags.append("clearance preferred")   # "Security clearance preferred", "... is a plus"
     yrs = min_years(text)
     if SENIOR_ROLE.search(text):
         return False, "senior role", yrs, flags

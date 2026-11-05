@@ -49,7 +49,7 @@ async def fetch_company(client, sem, company):
         except Exception as e:
             detail = "" if quiet() else f" {e}"   # error text can contain URLs
             print(f"⚠️  {company['company']}: {type(e).__name__}{detail}")
-            return []
+            return None   # failed, unlike an empty board: don't count it as the company's first run
 
 
 async def run():
@@ -57,25 +57,30 @@ async def run():
     sem = asyncio.Semaphore(MAX_PARALLEL)
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
         results = await asyncio.gather(*(fetch_company(client, sem, c) for c in companies))
-    all_jobs = [j for jobs in results for j in jobs]
+    all_jobs = [j for jobs in results if jobs for j in jobs]
 
     store = Store(url=os.environ.get("DATABASE_URL"))   # blank/unset -> local SQLite
-    baseline = store.is_empty()
-    new_matches, skipped = [], Counter()
+    seen = store.seen_companies()
+    new_matches, backlog, skipped = [], 0, Counter()
 
     for j in all_jobs:
         keep, flags = classify(j)                 # stage 1: title + location
         if not keep:
             continue
+        # a company's first run is its existing backlog, not news
+        status = "new" if j.company in seen else "backlog"
         ok, reason, yrs, desc_flags = eligibility.check(j.description)   # stage 2: description
         if not ok:
             skipped["too many years" if "years" in reason else reason] += 1
-            store.upsert(j, "skip", reason, yrs)
+            store.upsert(j, "skip", reason, yrs, status)
             continue
         flags = flags + desc_flags
-        is_new = store.upsert(j, "match", ", ".join(flags) or None, yrs)
-        if is_new:
+        is_new = store.upsert(j, "match", ", ".join(flags) or None, yrs, status)
+        if is_new and status == "backlog":
+            backlog += 1
+        elif is_new:
             new_matches.append((j, flags, yrs))
+    store.mark_seen([c["company"] for c, jobs in zip(companies, results) if jobs is not None])
     store.commit()
     store.close()
 
@@ -83,13 +88,10 @@ async def run():
     print(f"\nChecked {len(companies)} companies, {total} jobs")
     print("Skipped by description: " + (", ".join(f"{k}: {v}" for k, v in skipped.most_common()) or "none"))
 
-    if baseline:
-        print(f"\n📦 First run: saved {len(new_matches)} matches as a baseline.")
-        print("   From now on, Recon shows only NEW jobs.\n")
-        show = new_matches
-    else:
-        print(f"\n🆕 {len(new_matches)} new matches since last run\n")
-        show = new_matches
+    if backlog:
+        print(f"\n📦 {backlog} backlog matches saved from first-time companies (not shown as new)")
+    print(f"\n🆕 {len(new_matches)} new matches since last run\n")
+    show = new_matches
 
     if quiet():
         return new_matches

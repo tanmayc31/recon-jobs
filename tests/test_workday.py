@@ -9,7 +9,8 @@ API = "/wday/cxs/capitalone/Capital_One"
 
 
 def posting(title, loc, path, req):
-    return {"title": title, "externalPath": path, "locationsText": loc, "bulletFields": [req]}
+    return {"title": title, "externalPath": path, "locationsText": loc, "bulletFields": [req],
+            "postedOn": "Posted 30+ Days Ago"}
 
 
 # Real titles from the Capital One / Salesforce feeds
@@ -20,7 +21,7 @@ SEARCH = [
 ]
 DETAIL = {"jobPostingInfo": {
     "jobReqId": "R1000001", "location": "McLean, VA", "additionalLocations": ["Richmond, VA", "Toronto, ON"],
-    "startDate": "2026-11-04", "externalUrl": "https://capitalone.wd12.myworkdayjobs.com/Capital_One/job/x",
+    "startDate": "2026-11-04", "postedOn": "Posted Today", "externalUrl": "https://capitalone.wd12.myworkdayjobs.com/Capital_One/job/x",
     "jobDescription": "<p>2+ years of experience building backend software.</p>"}}
 
 
@@ -63,6 +64,7 @@ def test_detail_only_for_jobs_passing_filter(monkeypatch):
     assert gets == [f"{API}/job/McLean-VA/Software-Engineer-II_R1000001-1"]   # not "Engineer 4", not sales
     by_title = {j.title: j for j in jobs}
     assert by_title["Full-stack Engineer 4"].description == ""
+    assert by_title["Full-stack Engineer 4"].posted_at == "Posted 30+ Days Ago"   # no detail call: search text
     # No detail: ID still comes from the requisition (bulletFields), so the "-1" repost suffix is ignored
     assert by_title["Full-stack Engineer 4"].job_id == "workday:capitalone:R1003192"
 
@@ -72,7 +74,7 @@ def test_detail_fills_job(monkeypatch):
     j = next(j for j in jobs if j.title == "Software Engineer II")
     assert j.job_id == "workday:capitalone:R1000001"        # requisition ID, not the posting path
     assert j.location == "McLean, VA; Richmond, VA; Toronto, ON"
-    assert j.posted_at == "2026-11-04" and j.url.endswith("/job/x")
+    assert j.posted_at == "Posted Today" and j.url.endswith("/job/x")
     assert "2+ years of experience" in j.description
 
 
