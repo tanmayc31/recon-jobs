@@ -1,6 +1,6 @@
 """Workday career sites. Config slug = tenant|wdN|site, e.g. nvidia|wd5|NVIDIAExternalCareerSite.
 
-The search list has no descriptions, so we fetch the detail page only for jobs
+The search list has no descriptions, so we fetch the detail page only for new jobs
 that pass the title + location filter (far fewer requests).
 """
 import asyncio
@@ -64,7 +64,8 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             tier=int(company["tier"]),
             description="",
         )
-        if classify(job)[0]:
+        # known jobs keep their stored verdict, so skip the detail request
+        if job.job_id not in company.get("known", ()) and classify(job)[0]:
             await add_detail(client, api, p["externalPath"], job, tenant)
         jobs.append(job)
     return jobs

@@ -91,3 +91,13 @@ def test_adds_updated_column_to_old_table(tmp_path):
             "u", "2026-10-09T17:58:39-04:00", "greenhouse", 2, updated_at="2026-11-05T11:50:21-05:00")
     s.upsert(j, "match", None, None)
     assert s.execute("SELECT site_updated_at FROM jobs").fetchone() == ("2026-11-05T11:50:21-05:00",)
+
+
+def test_touch_keeps_verdict(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.upsert(JOB, "skip", "citizenship/clearance", None)   # set by a --recheck run
+    JOB.posted_at = "2026-11-01T00:00:00Z"
+    s.touch_many([JOB])                                    # an overlapping normal run
+    assert s.execute("SELECT decision, reason, posted_at FROM jobs").fetchone() == \
+        ("skip", "citizenship/clearance", "2026-11-01T00:00:00Z")
+    JOB.posted_at = None

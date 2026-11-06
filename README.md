@@ -12,7 +12,13 @@ python -m recon.detect stripe databricks palantir openai ramp notion
 
 ## 2. Run the bot
 python -m recon.main              # all tiers
-python -m recon.main --tiers 1,2  # what GitHub Actions runs every 30 min (Tier 3: every 3 h)
+python -m recon.main --tiers 1,2                          # GitHub Actions: every 30 min
+python -m recon.main --tiers 3 --ats greenhouse,lever,ashby  # every 3 h
+python -m recon.main --tiers 3 --ats workday                 # every 6 h (slow: ~20s per tenant)
+python -m recon.main --recheck     # re-judge known jobs too (after changing filter rules)
+
+Known jobs keep their stored verdict, so Recon only fetches descriptions for job IDs it has
+never seen. Use --recheck after editing filters.py or eligibility.py to apply the new rules.
 
 ## 3. Run tests
 python -m pytest -q

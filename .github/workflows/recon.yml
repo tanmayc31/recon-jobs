@@ -1,30 +1,50 @@
 name: recon
 
+# Lanes (each its own job with its own 15-minute limit):
+#   1-2        Tier 1-2, all ATSes                  every 30 min
+#   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
+#   3-workday  Tier 3 Workday                       every 6 h
+# Weekly recheck (Sunday 11pm ET): all three lanes with --recheck, so new filter rules
+# reach old jobs.
 on:
   schedule:
-    - cron: "*/30 * * * *"   # Tier 1-2 every 30 minutes (GitHub may delay scheduled runs)
-    - cron: "15 */3 * * *"   # Tier 3 every 3 hours, offset from the :00/:30 runs
+    - cron: "*/30 * * * *"   # 1-2 (GitHub may delay scheduled runs)
+    - cron: "15 */3 * * *"   # 3-other, offset from the :00/:30 runs
+    - cron: "45 */6 * * *"   # 3-workday
+    - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US
   workflow_dispatch:          # manual "Run workflow" button
     inputs:
-      tiers:
-        description: "Tiers to check"
+      lane:
+        description: "What to check"
         type: choice
-        options: ["1,2", "3"]
-        default: "1,2"
-
-env:
-  TIERS: ${{ inputs.tiers || (github.event.schedule == '15 */3 * * *' && '3' || '1,2') }}
-
-concurrency:
-  # one run per tier group at a time; Tier 3 never blocks the 30-minute runs
-  group: recon-${{ inputs.tiers || (github.event.schedule == '15 */3 * * *' && '3' || '1,2') }}
-  cancel-in-progress: false
+        options: ["1-2", "3-other", "3-workday"]
+        default: "1-2"
+      recheck:
+        description: "Re-judge known jobs (after changing filter rules)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   run:
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(
+          github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.lane) ||
+          github.event.schedule == '15 */3 * * *' && '["3-other"]' ||
+          github.event.schedule == '45 */6 * * *' && '["3-workday"]' ||
+          github.event.schedule == '0 4 * * 1' && '["1-2", "3-other", "3-workday"]' ||
+          '["1-2"]') }}
+    env:
+      RECHECK: ${{ (github.event.schedule == '0 4 * * 1' || inputs.recheck) && '--recheck' || '' }}
+    concurrency:
+      # one run per lane at a time; rechecks get their own group so a queued 30-minute run
+      # can't cancel them (normal runs never overwrite verdicts, so overlap is safe)
+      group: recon-${{ matrix.lane }}${{ (github.event.schedule == '0 4 * * 1' || inputs.recheck) && '-recheck' || '' }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15       # recon.main stops starting companies at 8 min (see DEADLINE)
     steps:
@@ -37,8 +57,14 @@ jobs:
       - name: Run Recon (counts only; logs are public)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          LANE: ${{ matrix.lane }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "DATABASE_URL secret is not set"; exit 1
           fi
-          python -m recon.main --tiers "$TIERS"
+          case "$LANE" in
+            1-2)       args="--tiers 1,2" ;;
+            3-other)   args="--tiers 3 --ats greenhouse,lever,ashby" ;;
+            3-workday) args="--tiers 3 --ats workday" ;;
+          esac
+          python -m recon.main $args $RECHECK

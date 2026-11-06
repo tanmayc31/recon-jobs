@@ -19,7 +19,8 @@ SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": 
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
-MAX_PARALLEL = 20     # different boards; Workday adds its own per-request delay
+# Separate lanes: slow Workday tenants (~20s each) can't starve the fast ATSes (~0.1s each)
+PARALLEL = {"workday": 10, "other": 20}
 # GitHub kills the job at 15 min (incl. setup). Stop starting companies after DEADLINE,
 # and give any one company at most COMPANY_TIMEOUT, so fetching ends by ~10 min.
 DEADLINE = 8 * 60
@@ -49,9 +50,9 @@ def load_companies(path: Path = COMPANIES, referrals: Path = REFERRALS) -> list[
     return companies
 
 
-async def fetch_company(client, sem, company, deadline, outcome):
+async def fetch_company(client, sems, company, deadline, outcome):
     """Jobs, or None if the company failed or wasn't reached in time (not its first run then)."""
-    async with sem:
+    async with sems["workday" if company["ats"] == "workday" else "other"]:
         if time.monotonic() > deadline:
             outcome["not reached"] += 1
             return None
@@ -66,22 +67,33 @@ async def fetch_company(client, sem, company, deadline, outcome):
             return None
 
 
-async def run(tiers: set[int] | None = None):
+async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str] | None = None):
+    """recheck=True re-fetches descriptions and re-judges every job (after a filter change)."""
     started = time.monotonic()
-    companies = [c for c in load_companies() if not tiers or int(c["tier"]) in tiers]
+    store = Store(url=os.environ.get("DATABASE_URL"))   # blank/unset -> local SQLite
+    known = {} if recheck else store.known_jobs()
+    companies = [c for c in load_companies()
+                 if (not tiers or int(c["tier"]) in tiers) and (not ats or c["ats"] in ats)]
+    for c in companies:
+        c["known"] = known   # adapters skip description requests for these job IDs
     random.shuffle(companies)   # if the time budget runs out, a different set waits each run
-    sem = asyncio.Semaphore(MAX_PARALLEL)
+    sems = {lane: asyncio.Semaphore(n) for lane, n in PARALLEL.items()}
     outcome = Counter()
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
         results = await asyncio.gather(*(
-            fetch_company(client, sem, c, started + DEADLINE, outcome) for c in companies))
+            fetch_company(client, sems, c, started + DEADLINE, outcome) for c in companies))
     all_jobs = [j for jobs in results if jobs for j in jobs]
 
-    store = Store(url=os.environ.get("DATABASE_URL"))   # blank/unset -> local SQLite
     seen = store.seen_companies()
-    new_matches, backlog, skipped, rows, kept = [], 0, Counter(), [], {}
+    new_matches, backlog, skipped, rows, kept, still_listed = [], 0, Counter(), [], {}, []
 
     for j in all_jobs:
+        if j.job_id in known:   # judged before: keep the stored verdict, just note it's still listed
+            decision, reason, _ = known[j.job_id]
+            if decision == "skip":
+                skipped["too many years" if "years" in (reason or "") else reason] += 1
+            still_listed.append(j)
+            continue
         keep, flags = classify(j)                 # stage 1: title + location
         if not keep:
             continue
@@ -103,12 +115,16 @@ async def run(tiers: set[int] | None = None):
             backlog += 1
         else:
             new_matches.append((j, flags, yrs))
+    # dates only, never the verdict: an overlapping --recheck run may have just updated it
+    store.touch_many(still_listed)
     store.mark_seen([c["company"] for c, jobs in zip(companies, results) if jobs is not None])
     store.commit()
     store.close()
 
     total = sum(1 for _ in all_jobs)
     label = f"tiers {','.join(map(str, sorted(tiers)))}" if tiers else "all tiers"
+    label += f", {','.join(sorted(ats))}" if ats else ""
+    label += ", recheck" if recheck else ""
     print(f"\nChecked {len(companies)} companies ({label}), {total} jobs in {time.monotonic() - started:.0f}s")
     print("Companies: " + ", ".join(f"{k}: {v}" for k, v in outcome.most_common()))
     print("Skipped by description: " + (", ".join(f"{k}: {v}" for k, v in skipped.most_common()) or "none"))
@@ -135,6 +151,10 @@ async def run(tiers: set[int] | None = None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tiers", help="comma-separated, e.g. 1,2 (default: all)")
+    parser.add_argument("--ats", help="comma-separated, e.g. workday or greenhouse,lever,ashby (default: all)")
+    parser.add_argument("--recheck", action="store_true",
+                        help="re-fetch descriptions and re-judge known jobs (after changing filters)")
     args = parser.parse_args()
     load_env()
-    asyncio.run(run({int(t) for t in args.tiers.split(",")} if args.tiers else None))
+    asyncio.run(run({int(t) for t in args.tiers.split(",")} if args.tiers else None, args.recheck,
+                    set(args.ats.split(",")) if args.ats else None))

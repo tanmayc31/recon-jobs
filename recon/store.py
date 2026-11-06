@@ -77,6 +77,11 @@ class Store:
     def is_empty(self) -> bool:
         return self.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
 
+    def known_jobs(self) -> dict[str, tuple[str, str | None, int | None]]:
+        """job_id -> (decision, reason, min_years) for every stored job."""
+        return {r[0]: (r[1], r[2], r[3]) for r in
+                self.execute("SELECT job_id, decision, reason, min_years FROM jobs").fetchall()}
+
     def seen_companies(self) -> set[str]:
         return {r[0] for r in self.execute("SELECT company FROM companies").fetchall()}
 
@@ -89,6 +94,14 @@ class Store:
                status: str = "new") -> bool:
         """Save the job. Returns True if this is the first time we've seen it."""
         return bool(self.upsert_many([(job, decision, reason, min_years, status)]))
+
+    def touch_many(self, jobs: list[Job]):
+        """Known jobs still listed: refresh last_seen and the site's dates, nothing else."""
+        t = now()
+        self.executemany(
+            "UPDATE jobs SET last_seen_at=?, posted_at=COALESCE(?, posted_at),"
+            " site_updated_at=COALESCE(?, site_updated_at) WHERE job_id=?",
+            [(t, j.posted_at, j.updated_at, j.job_id) for j in jobs])
 
     def upsert_many(self, rows: list[tuple[Job, str, str | None, int | None, str]]) -> set[str]:
         """Save (job, decision, reason, min_years, status) rows in two batches.

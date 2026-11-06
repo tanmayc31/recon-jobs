@@ -102,3 +102,11 @@ def test_tier3_searches_engineer_and_developer(monkeypatch):
 def test_tier1_scans_everything(monkeypatch):
     jobs, calls = run([SEARCH], monkeypatch)
     assert len(jobs) == 3   # CO is Tier 1/2: full board, no search text
+
+
+def test_known_jobs_skip_detail(monkeypatch):
+    monkeypatch.setattr(workday, "DELAY", 0)
+    calls = []
+    known = {"workday:capitalone:R1000001": ("match", None, 2)}   # the Software Engineer II posting
+    jobs = asyncio.run(workday.fetch(mock([SEARCH], calls), dict(CO, known=known)))
+    assert not [c for c in calls if c[0] == "GET"] and len(jobs) == 3

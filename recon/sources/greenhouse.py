@@ -1,5 +1,5 @@
 """Greenhouse boards. The job list is fetched without content=true (much smaller); the
-description is fetched only for jobs that pass the title + location filter."""
+description is fetched only for new jobs that pass the title + location filter."""
 import httpx
 from recon.filters import classify
 from recon.models import Job
@@ -25,7 +25,8 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             source="greenhouse",
             tier=int(company["tier"]),
         )
-        if classify(job)[0]:
+        # known jobs keep their stored verdict, so skip the detail request
+        if job.job_id not in company.get("known", ()) and classify(job)[0]:
             d = await client.get(f"{api}/{j['id']}")
             if d.status_code == 200:   # else main judges it without a description
                 job.description = strip_html(d.json().get("content"))

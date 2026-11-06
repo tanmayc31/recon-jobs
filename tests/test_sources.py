@@ -55,3 +55,16 @@ def test_ashby_skips_unlisted():
                         {"id": "2", "title": "Hidden", "isListed": False}]}
     jobs = run(ashby.fetch(client(payload), CO))
     assert len(jobs) == 1
+
+
+def test_greenhouse_skips_details_for_known_jobs():
+    listing = {"jobs": [{"id": 8220757, "title": "Software Engineer, AI Security",
+                         "location": {"name": "Bellevue, WA; Menlo Park, CA"}, "absolute_url": "u1"}]}
+    calls = []
+
+    def handler(req):
+        calls.append(req.url.path)
+        return httpx.Response(200, json=listing)
+    known = {"greenhouse:acme:8220757": ("match", None, None)}
+    jobs = run(greenhouse.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), dict(CO, known=known)))
+    assert calls == ["/v1/boards/acme/jobs"] and len(jobs) == 1   # listed, but no detail request
