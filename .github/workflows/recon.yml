@@ -1,18 +1,16 @@
 name: recon
 
-# Lanes (each its own job with its own 15-minute limit; steps live in recon-lane.yml):
+# Lanes (each its own job with its own 15-minute limit; steps live in recon-lane.yml).
+# cron-job.org triggers them through workflow_dispatch (GitHub's own cron is unreliable):
 #   1-2        Tier 1-2, all ATSes                  every 30 min
 #   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
 #   3-workday  Tier 3 Workday                       every 6 h
-# Weekly recheck (Sunday 11pm ET): all three lanes with --recheck, so new filter rules
-# reach old jobs.
+# Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
+# filter rules reach old jobs.
 on:
   schedule:
-    - cron: "*/30 * * * *"   # 1-2 (GitHub may delay scheduled runs)
-    - cron: "15 */3 * * *"   # 3-other, offset from the :00/:30 runs
-    - cron: "45 */6 * * *"   # 3-workday
     - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US
-  workflow_dispatch:          # manual "Run workflow" button
+  workflow_dispatch:          # cron-job.org and the manual "Run workflow" button
     inputs:
       lane:
         description: "What to check"
@@ -29,7 +27,7 @@ permissions:
 
 jobs:
   tier-1-2:
-    if: github.event.schedule == '*/30 * * * *' || github.event.schedule == '0 4 * * 1' || inputs.lane == '1-2'
+    if: github.event.schedule == '0 4 * * 1' || inputs.lane == '1-2'
     uses: ./.github/workflows/recon-lane.yml
     with:
       lane: "1-2"
@@ -39,7 +37,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
   tier-3-other:
-    if: github.event.schedule == '15 */3 * * *' || github.event.schedule == '0 4 * * 1' || inputs.lane == '3-other'
+    if: github.event.schedule == '0 4 * * 1' || inputs.lane == '3-other'
     uses: ./.github/workflows/recon-lane.yml
     with:
       lane: "3-other"
@@ -49,7 +47,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
   tier-3-workday:
-    if: github.event.schedule == '45 */6 * * *' || github.event.schedule == '0 4 * * 1' || inputs.lane == '3-workday'
+    if: github.event.schedule == '0 4 * * 1' || inputs.lane == '3-workday'
     uses: ./.github/workflows/recon-lane.yml
     with:
       lane: "3-workday"
