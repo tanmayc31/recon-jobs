@@ -1,0 +1,49 @@
+name: recon lane
+
+# Shared steps for one lane, called by recon.yml (not run on its own).
+on:
+  workflow_call:
+    inputs:
+      lane:
+        type: string
+        required: true
+      args:
+        type: string
+        required: true
+      recheck:
+        type: boolean
+        default: false
+    secrets:
+      DATABASE_URL:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    # one run per lane at a time; rechecks get their own group so a queued 30-minute run
+    # can't cancel them (normal runs never overwrite verdicts, so overlap is safe)
+    concurrency:
+      group: recon-${{ inputs.lane }}${{ inputs.recheck && '-recheck' || '' }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15       # recon.main stops starting companies at 8 min (see DEADLINE)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run Recon (counts only; logs are public)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ARGS: ${{ inputs.args }}
+          RECHECK: ${{ inputs.recheck && '--recheck' || '' }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret is not set"; exit 1
+          fi
+          # ARGS is a fixed string from recon.yml; word splitting is intended
+          python -m recon.main $ARGS $RECHECK

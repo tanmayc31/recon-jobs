@@ -1,6 +1,6 @@
 name: recon
 
-# Lanes (each its own job with its own 15-minute limit):
+# Lanes (each its own job with its own 15-minute limit; steps live in recon-lane.yml):
 #   1-2        Tier 1-2, all ATSes                  every 30 min
 #   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
 #   3-workday  Tier 3 Workday                       every 6 h
@@ -28,43 +28,32 @@ permissions:
   contents: read
 
 jobs:
-  run:
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: ${{ fromJSON(
-          github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.lane) ||
-          github.event.schedule == '15 */3 * * *' && '["3-other"]' ||
-          github.event.schedule == '45 */6 * * *' && '["3-workday"]' ||
-          github.event.schedule == '0 4 * * 1' && '["1-2", "3-other", "3-workday"]' ||
-          '["1-2"]') }}
-    env:
-      RECHECK: ${{ (github.event.schedule == '0 4 * * 1' || inputs.recheck) && '--recheck' || '' }}
-    concurrency:
-      # one run per lane at a time; rechecks get their own group so a queued 30-minute run
-      # can't cancel them (normal runs never overwrite verdicts, so overlap is safe)
-      group: recon-${{ matrix.lane }}${{ (github.event.schedule == '0 4 * * 1' || inputs.recheck) && '-recheck' || '' }}
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 15       # recon.main stops starting companies at 8 min (see DEADLINE)
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-      - run: pip install -r requirements.txt
-      - name: Run Recon (counts only; logs are public)
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          LANE: ${{ matrix.lane }}
-        run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "DATABASE_URL secret is not set"; exit 1
-          fi
-          case "$LANE" in
-            1-2)       args="--tiers 1,2" ;;
-            3-other)   args="--tiers 3 --ats greenhouse,lever,ashby" ;;
-            3-workday) args="--tiers 3 --ats workday" ;;
-          esac
-          python -m recon.main $args $RECHECK
+  tier-1-2:
+    if: github.event.schedule == '*/30 * * * *' || github.event.schedule == '0 4 * * 1' || inputs.lane == '1-2'
+    uses: ./.github/workflows/recon-lane.yml
+    with:
+      lane: "1-2"
+      args: "--tiers 1,2"
+      recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
+    secrets:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  tier-3-other:
+    if: github.event.schedule == '15 */3 * * *' || github.event.schedule == '0 4 * * 1' || inputs.lane == '3-other'
+    uses: ./.github/workflows/recon-lane.yml
+    with:
+      lane: "3-other"
+      args: "--tiers 3 --ats greenhouse,lever,ashby"
+      recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
+    secrets:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  tier-3-workday:
+    if: github.event.schedule == '45 */6 * * *' || github.event.schedule == '0 4 * * 1' || inputs.lane == '3-workday'
+    uses: ./.github/workflows/recon-lane.yml
+    with:
+      lane: "3-workday"
+      args: "--tiers 3 --ats workday"
+      recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
+    secrets:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
