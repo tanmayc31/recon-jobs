@@ -2,11 +2,22 @@ name: recon
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes (GitHub may delay scheduled runs)
+    - cron: "*/30 * * * *"   # Tier 1-2 every 30 minutes (GitHub may delay scheduled runs)
+    - cron: "15 */3 * * *"   # Tier 3 every 3 hours, offset from the :00/:30 runs
   workflow_dispatch:          # manual "Run workflow" button
+    inputs:
+      tiers:
+        description: "Tiers to check"
+        type: choice
+        options: ["1,2", "3"]
+        default: "1,2"
+
+env:
+  TIERS: ${{ inputs.tiers || (github.event.schedule == '15 */3 * * *' && '3' || '1,2') }}
 
 concurrency:
-  group: recon                # never two runs at once
+  # one run per tier group at a time; Tier 3 never blocks the 30-minute runs
+  group: recon-${{ inputs.tiers || (github.event.schedule == '15 */3 * * *' && '3' || '1,2') }}
   cancel-in-progress: false
 
 permissions:
@@ -15,7 +26,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 15       # recon.main stops starting companies at 8 min (see DEADLINE)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,4 +41,4 @@ jobs:
           if [ -z "$DATABASE_URL" ]; then
             echo "DATABASE_URL secret is not set"; exit 1
           fi
-          python -m recon.main
+          python -m recon.main --tiers "$TIERS"

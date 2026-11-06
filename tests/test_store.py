@@ -28,6 +28,16 @@ def fake_psycopg(tmp_path, seen):
             seen.append(sql)
             return self.db.execute(sql.replace("%s", "?"), params)
 
+        def cursor(self):
+            conn = self
+
+            class Cursor:
+                def executemany(self, sql, rows):
+                    assert "?" not in sql, sql
+                    seen.append(sql)
+                    conn.db.executemany(sql.replace("%s", "?"), rows)
+            return Cursor()
+
         def commit(self):
             self.db.commit()
 

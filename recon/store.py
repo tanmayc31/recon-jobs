@@ -68,6 +68,12 @@ class Store:
         """Run SQL written with ? placeholders on either backend."""
         return self.db.execute(sql.replace("?", self.placeholder), params)
 
+    def executemany(self, sql: str, rows: list[tuple]):
+        if not rows:
+            return
+        cur = self.db.cursor()   # psycopg pipelines executemany: one round trip, not one per row
+        cur.executemany(sql.replace("?", self.placeholder), rows)
+
     def is_empty(self) -> bool:
         return self.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
 
@@ -76,30 +82,39 @@ class Store:
 
     def mark_seen(self, companies: list[str]):
         t = now()
-        for c in companies:
-            self.execute("INSERT INTO companies (company, first_run_at) VALUES (?, ?)"
-                         " ON CONFLICT (company) DO NOTHING", (c, t))
+        self.executemany("INSERT INTO companies (company, first_run_at) VALUES (?, ?)"
+                         " ON CONFLICT (company) DO NOTHING", [(c, t) for c in companies])
 
     def upsert(self, job: Job, decision: str, reason: str | None, min_years: int | None,
                status: str = "new") -> bool:
-        """Save the job. Returns True if this is the first time we've seen it.
-        status only applies to new rows; it never overwrites what the user chose."""
+        """Save the job. Returns True if this is the first time we've seen it."""
+        return bool(self.upsert_many([(job, decision, reason, min_years, status)]))
+
+    def upsert_many(self, rows: list[tuple[Job, str, str | None, int | None, str]]) -> set[str]:
+        """Save (job, decision, reason, min_years, status) rows in two batches.
+        Returns the job_ids seen for the first time. status only applies to new rows;
+        it never overwrites what the user chose."""
+        latest = {r[0].job_id: r for r in rows}   # a board can list the same job twice
+        ids = list(latest)
+        known = set()
+        for i in range(0, len(ids), 1000):
+            chunk = ids[i:i + 1000]
+            known |= {r[0] for r in self.execute(
+                f"SELECT job_id FROM jobs WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk))}
         t = now()
-        cur = self.execute(
+        self.executemany(
             "UPDATE jobs SET last_seen_at=?, decision=?, reason=?, min_years=?,"
             " posted_at=COALESCE(?, posted_at), site_updated_at=COALESCE(?, site_updated_at) WHERE job_id=?",
-            (t, decision, reason, min_years, job.posted_at, job.updated_at, job.job_id),
-        )
-        if cur.rowcount:
-            return False
-        self.execute(
+            [(t, d, r, y, j.posted_at, j.updated_at, j.job_id)
+             for j, d, r, y, _ in latest.values() if j.job_id in known])
+        self.executemany(
             "INSERT INTO jobs (job_id, company, title, location, url, source, tier, posted_at,"
             " first_seen_at, last_seen_at, decision, reason, min_years, site_updated_at, status)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (job.job_id, job.company, job.title, job.location, job.url, job.source, job.tier,
-             job.posted_at, t, t, decision, reason, min_years, job.updated_at, status),
-        )
-        return True
+            [(j.job_id, j.company, j.title, j.location, j.url, j.source, j.tier,
+              j.posted_at, t, t, d, r, y, j.updated_at, s)
+             for j, d, r, y, s in latest.values() if j.job_id not in known])
+        return set(ids) - known
 
     def commit(self):
         self.db.commit()

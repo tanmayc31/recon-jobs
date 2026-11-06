@@ -1,16 +1,20 @@
+"""Greenhouse boards. The job list is fetched without content=true (much smaller); the
+description is fetched only for jobs that pass the title + location filter."""
 import httpx
+from recon.filters import classify
 from recon.models import Job
 from recon.text import strip_html
 
-URL = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
+API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 
 
 async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
-    r = await client.get(URL.format(slug=company["slug"]))
+    api = API.format(slug=company["slug"])
+    r = await client.get(api)
     r.raise_for_status()
     jobs = []
     for j in r.json().get("jobs", []):
-        jobs.append(Job(
+        job = Job(
             job_id=f"greenhouse:{company['slug']}:{j['id']}",
             company=company["company"],
             title=j.get("title", ""),
@@ -20,6 +24,10 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             updated_at=j.get("updated_at"),
             source="greenhouse",
             tier=int(company["tier"]),
-            description=strip_html(j.get("content")),
-        ))
+        )
+        if classify(job)[0]:
+            d = await client.get(f"{api}/{j['id']}")
+            if d.status_code == 200:   # else main judges it without a description
+                job.description = strip_html(d.json().get("content"))
+        jobs.append(job)
     return jobs

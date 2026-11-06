@@ -80,3 +80,25 @@ def test_detail_fills_job(monkeypatch):
 
 def test_parse_slug():
     assert workday.parse_slug("nvidia|wd5|NVIDIAExternalCareerSite") == ("nvidia", "wd5", "NVIDIAExternalCareerSite")
+
+
+def test_tier3_searches_engineer_and_developer(monkeypatch):
+    monkeypatch.setattr(workday, "DELAY", 0)
+    searches = []
+
+    def handler(req):
+        if req.method == "POST":
+            body = json.loads(req.content)
+            searches.append(body["searchText"])
+            # both searches return the same posting: kept once
+            return httpx.Response(200, json={"jobPostings": SEARCH[1:2] if body["offset"] == 0 else []})
+        return httpx.Response(200, json=DETAIL)
+    tier3 = dict(CO, tier="3")
+    jobs = asyncio.run(workday.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), tier3))
+    assert searches == ["engineer", "engineer", "developer"]   # 2nd search: page 1 is all repeats, stop
+    assert len(jobs) == 1
+
+
+def test_tier1_scans_everything(monkeypatch):
+    jobs, calls = run([SEARCH], monkeypatch)
+    assert len(jobs) == 3   # CO is Tier 1/2: full board, no search text

@@ -10,16 +10,16 @@ def job(n):
                f"https://example.com/jobs/{n}", None, "greenhouse", 1)
 
 
-def run_once(tmp_path, monkeypatch, jobs):
+def run_once(tmp_path, monkeypatch, jobs, tiers=None):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(main, "load_companies", lambda: [
         {"company": "Co", "ats": "greenhouse", "slug": "co", "tier": "1", "referral": "Jane Doe"}])
 
-    async def fetch(client, sem, company):
+    async def fetch(client, sem, company, deadline, outcome):
         return jobs
     monkeypatch.setattr(main, "fetch_company", fetch)
     monkeypatch.setattr(main, "Store", lambda url=None: Store(tmp_path / "t.db", url))
-    return asyncio.run(main.run())
+    return asyncio.run(main.run(tiers))
 
 
 def statuses(tmp_path):
@@ -45,7 +45,7 @@ def test_ci_logs_counts_only(tmp_path, monkeypatch, capsys):
     run_once(tmp_path, monkeypatch, [])
     assert len(run_once(tmp_path, monkeypatch, [job(1)])) == 1
     out = capsys.readouterr().out
-    assert "Checked 1 companies, 1 jobs" in out
+    assert "Checked 1 companies (all tiers), 1 jobs in" in out
     assert "Software Engineer II" not in out and "example.com" not in out and "Jane Doe" not in out
 
 
@@ -55,3 +55,9 @@ def test_local_shows_jobs(tmp_path, monkeypatch, capsys):
     run_once(tmp_path, monkeypatch, [job(1)])
     out = capsys.readouterr().out
     assert "Software Engineer II" in out and "Jane Doe" in out
+
+
+def test_tiers_filter_companies(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("CI", raising=False)
+    run_once(tmp_path, monkeypatch, [job(1)], tiers={3})          # Co is Tier 1
+    assert "Checked 0 companies (tiers 3), 0 jobs" in capsys.readouterr().out

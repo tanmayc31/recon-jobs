@@ -11,7 +11,8 @@ pip install -r requirements.txt
 python -m recon.detect stripe databricks palantir openai ramp notion
 
 ## 2. Run the bot
-python -m recon.main
+python -m recon.main              # all tiers
+python -m recon.main --tiers 1,2  # what GitHub Actions runs every 30 min (Tier 3: every 3 h)
 
 ## 3. Run tests
 python -m pytest -q
@@ -28,6 +29,18 @@ read from the career site URL:
 
 Workday search results have no descriptions, so Recon fetches the job detail only
 for jobs that pass the title + location filter.
+
+## Discover more companies
+python -m recon.discover            # verify boards, append working ones as Tier 3
+python -m recon.discover --dry-run  # report only
+
+Sources: application links in the SimplifyJobs New-Grad-Positions and Summer2026-Internships
+READMEs, and Job Seek's board list (Greenhouse, Lever, Ashby and Workday boards only).
+A company's first run is saved as backlog, not shown as new.
+
+## Credits
+Company board data from [Job Seek](https://github.com/colophon-group/jobseek)
+(`apps/crawler/data/boards.csv`, MIT License, Copyright (c) 2025 Viktor Shcherbakov).
 
 ## Referral contacts (private)
 Optional, gitignored: create config/referrals.csv with columns company,contact

@@ -15,6 +15,9 @@ BASE = "https://{tenant}.{wd}.myworkdayjobs.com"
 PAGE = 20          # Workday's max page size
 DELAY = 0.2        # seconds between requests, be polite
 MAX_OFFSET = 5000  # safety stop; "total" is 0 after page 1, so we don't trust it
+# Tier 3 (hundreds of discovered tenants): search instead of paging through every posting.
+# The title filter needs "engineer"/"developer" (or SWE/SDE/SRE) anyway.
+TIER3_SEARCHES = ["engineer", "developer"]
 # "4 Locations" in search results -> real list only in the detail
 MULTI = re.compile(r"^\d+\s+locations?$", re.I)
 
@@ -29,20 +32,22 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
     base = BASE.format(tenant=tenant, wd=wd)
     api = f"{base}/wday/cxs/{tenant}/{site}"
 
-    postings, seen, offset = [], set(), 0
-    while offset < MAX_OFFSET:
-        r = await client.post(f"{api}/jobs", json={"appliedFacets": {}, "limit": PAGE,
-                                                   "offset": offset, "searchText": ""})
-        r.raise_for_status()
-        page = r.json().get("jobPostings") or []
-        fresh = [p for p in page if p.get("externalPath") and p["externalPath"] not in seen]
-        if not fresh:
-            break   # out of results, or past Workday's 2000 cap (it wraps back to page 1)
-        for p in fresh:
-            seen.add(p["externalPath"])
-            postings.append(p)
-        offset += PAGE
-        await asyncio.sleep(DELAY)
+    postings, seen = [], set()
+    for search in TIER3_SEARCHES if int(company["tier"]) >= 3 else [""]:
+        offset = 0
+        while offset < MAX_OFFSET:
+            r = await client.post(f"{api}/jobs", json={"appliedFacets": {}, "limit": PAGE,
+                                                       "offset": offset, "searchText": search})
+            r.raise_for_status()
+            page = r.json().get("jobPostings") or []
+            fresh = [p for p in page if p.get("externalPath") and p["externalPath"] not in seen]
+            if not fresh:
+                break   # out of results, or past Workday's 2000 cap (it wraps back to page 1)
+            for p in fresh:
+                seen.add(p["externalPath"])
+                postings.append(p)
+            offset += PAGE
+            await asyncio.sleep(DELAY)
 
     jobs = []
     for p in postings:

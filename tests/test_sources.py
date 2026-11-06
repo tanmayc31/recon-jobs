@@ -13,6 +13,26 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def test_greenhouse_details_only_for_filter_passes():
+    # Real Robinhood titles: the Senior one fails the title filter, so no detail request for it
+    listing = {"jobs": [
+        {"id": 8220757, "title": "Software Engineer, AI Security", "location": {"name": "Bellevue, WA; Menlo Park, CA"},
+         "absolute_url": "u1", "first_published": "2026-10-09T17:58:39-04:00", "updated_at": "2026-11-05T11:50:21-05:00"},
+        {"id": 8334429, "title": "Senior Software Engineer, AI Security", "location": {"name": "Bellevue, WA"},
+         "absolute_url": "u2"}]}
+    calls = []
+
+    def handler(req):
+        calls.append(req.url.path)
+        if req.url.path.endswith("/jobs"):
+            assert "content" not in str(req.url)
+            return httpx.Response(200, json=listing)
+        return httpx.Response(200, json={"content": "&lt;p&gt;2+ years of experience&lt;/p&gt;"})
+    jobs = run(greenhouse.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), CO))
+    assert calls == ["/v1/boards/acme/jobs", "/v1/boards/acme/jobs/8220757"]
+    assert "2+ years of experience" in jobs[0].description and jobs[1].description == ""
+
+
 def test_greenhouse():
     payload = {"jobs": [{"id": 1, "title": "SWE", "location": {"name": "NYC"},
                          "absolute_url": "u", "first_published": "2026-10-09T17:58:39-04:00",
