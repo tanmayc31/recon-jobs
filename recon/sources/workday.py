@@ -22,6 +22,16 @@ TIER3_SEARCHES = ["engineer", "developer"]
 MULTI = re.compile(r"^\d+\s+locations?$", re.I)
 
 
+def search_id(posting: dict) -> str:
+    """Requisition ID from a search result: the bullet the path ends with ("..._R1003192-1").
+    Not simply bullets[0]: F5 lists ['0', 'RP1038981'], which gave every F5 job the ID "0"."""
+    path = posting["externalPath"]
+    for b in posting.get("bulletFields") or []:
+        if b and re.search(rf"_{re.escape(b)}(-\d+)?$", path):
+            return b
+    return path
+
+
 def parse_slug(slug: str) -> tuple[str, str, str]:
     tenant, wd, site = slug.split("|")
     return tenant, wd, site
@@ -52,9 +62,8 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
     jobs = []
     for p in postings:
         loc = p.get("locationsText", "") or ""
-        bullets = p.get("bulletFields") or []
         job = Job(
-            job_id=f"workday:{tenant}:{bullets[0] if bullets else p['externalPath']}",
+            job_id=f"workday:{tenant}:{search_id(p)}",
             company=company["company"],
             title=p.get("title", ""),
             location="Multiple Locations" if MULTI.match(loc) else loc,

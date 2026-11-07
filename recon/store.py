@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     posted_at     TEXT,   -- what the site says: ISO date, or Workday text "Posted 30+ Days Ago"
     first_seen_at TEXT,   -- when Recon first saw it (our own clock)
     last_seen_at  TEXT,
-    decision      TEXT,   -- 'match' or 'skip'
+    decision      TEXT,   -- 'match', 'skip', or 'unverified' (no description yet)
     reason        TEXT,   -- why skipped, or flags for matches
     min_years     INTEGER,
     site_updated_at TEXT, -- the site's last-edit time, when it has one (Greenhouse)
@@ -78,9 +78,10 @@ class Store:
         return self.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
 
     def known_jobs(self) -> dict[str, tuple[str, str | None, int | None]]:
-        """job_id -> (decision, reason, min_years) for every stored job."""
-        return {r[0]: (r[1], r[2], r[3]) for r in
-                self.execute("SELECT job_id, decision, reason, min_years FROM jobs").fetchall()}
+        """job_id -> (decision, reason, min_years) for every judged job. Unverified rows
+        (description fetch failed) are left out, so the next run fetches and judges them."""
+        return {r[0]: (r[1], r[2], r[3]) for r in self.execute(
+            "SELECT job_id, decision, reason, min_years FROM jobs WHERE decision <> 'unverified'").fetchall()}
 
     def seen_companies(self) -> set[str]:
         return {r[0] for r in self.execute("SELECT company FROM companies").fetchall()}

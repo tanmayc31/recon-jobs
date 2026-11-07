@@ -7,9 +7,9 @@ from recon.models import Job
 from recon.store import Store
 
 
-def job(n):
+def job(n, description="Build backend services in Python and SQL. 1+ years of experience."):
     return Job(f"greenhouse:co:{n}", "Co", "Software Engineer II", "New York, NY",
-               f"https://example.com/jobs/{n}", None, "greenhouse", 1)
+               f"https://example.com/jobs/{n}", None, "greenhouse", 1, description)
 
 
 def run_once(tmp_path, monkeypatch, jobs, tiers=None, recheck=False, ats=None):
@@ -75,7 +75,7 @@ def test_known_jobs_reuse_verdict_unless_recheck(tmp_path, monkeypatch):
     assert verdicts(tmp_path) == {"greenhouse:co:1": "match"}
 
     # a new rule would now block it...
-    monkeypatch.setattr(main.eligibility, "check", lambda text: (False, "citizenship/clearance", None, []))
+    monkeypatch.setattr(main.eligibility, "check", lambda text, title="": (False, "citizenship/clearance", None, []))
     run_once(tmp_path, monkeypatch, [job(1)])
     assert verdicts(tmp_path) == {"greenhouse:co:1": "match"}       # ...but known jobs aren't re-judged
     run_once(tmp_path, monkeypatch, [job(1)], recheck=True)
@@ -130,3 +130,49 @@ def test_busy_workday_lane_does_not_block_others(monkeypatch):
         await asyncio.wait_for(asyncio.gather(*(main.fetch_company(None, sems, c, far, outcome) for c in cos)), 2)
         return outcome
     assert asyncio.run(go())["ok"] == 3
+
+
+def test_empty_description_is_unverified_and_retried(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("CI", raising=False)
+    run_once(tmp_path, monkeypatch, [])
+    # Real case: Genworth "Software Engineer - Java Development" was judged while its
+    # Workday detail request failed (429), so it matched on an empty description
+    assert run_once(tmp_path, monkeypatch, [job(1, description="")]) == []
+    assert "Unverified (no description, retried next run): 1" in capsys.readouterr().out
+    assert verdicts(tmp_path) == {"greenhouse:co:1": "unverified"}
+
+    known = []
+
+    async def fetch(client, sems, company, deadline, outcome):
+        known.append(dict(company["known"]))
+        return [job(1, description="This role is not eligible for employment visa sponsorship.")]
+    monkeypatch.setattr(main, "fetch_company", fetch)
+    asyncio.run(main.run())
+    assert known == [{}]                                           # not "known": fetched again
+    assert verdicts(tmp_path) == {"greenhouse:co:1": "skip"}       # judged once it has a description
+
+
+def test_connection_not_held_during_fetch(tmp_path, monkeypatch):
+    # Supabase drops idle connections: the one used for reading must be closed before fetching
+    opened = []
+
+    class Tracked(Store):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.closed = False
+            opened.append(self)
+
+        def close(self):
+            self.closed = True
+            super().close()
+
+    async def fetch(client, sems, company, deadline, outcome):
+        assert all(s.closed for s in opened)          # nothing open while fetching
+        return [job(1)]
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(main, "load_companies", lambda: [
+        {"company": "Co", "ats": "greenhouse", "slug": "co", "tier": "1", "referral": ""}])
+    monkeypatch.setattr(main, "fetch_company", fetch)
+    monkeypatch.setattr(main, "Store", lambda url=None: Tracked(tmp_path / "t.db", url))
+    asyncio.run(main.run())
+    assert len(opened) == 2 and all(s.closed for s in opened)

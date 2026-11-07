@@ -13,7 +13,8 @@ NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
 YEARS = re.compile(
     r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*"
     r"(?:(?:-|–|to)\s*\d{1,2}\s*\+?\s*)?(?:years?|yrs?)\b"
-    r"(?=[^.]{0,80}\b(experience|industry|professional|engineering|software|building|developing|working))",
+    r"(?=[^.]{0,80}\b(experience|industry|professional|engineering|software|building|developing|working)"
+    r"|\s+in\s+an?\s+[^.]{0,40}?\b(role|position)\b)",   # F5: "8+ years in a Post-Sales technical role"
     re.I,
 )
 
@@ -23,7 +24,11 @@ BLOCKERS = {
         # Workday Federal: "mandates that all Workday personnel ... be United States citizens (naturalized or native)"
         r"mandates?\s+(that\s+)?all\b[^.]{0,120}?\bbe\s+(u\.?s\.?|united\s+states)\s+citizens?|"
         r"(u\.?s\.?|united\s+states)\s+citizens?\s*\(\s*naturalized\s+or\s+native|"
-        r"(security\s+)?clearance\s+(is\s+)?required|active\s+(secret|top\s+secret|ts/sci)|"
+        r"(security\s+)?clearance\s+(is\s+)?required|"
+        # "Active Top Secret required with ability to obtain SCI Preferred": keep "required" in
+        # the match so the later "Preferred" can't make it look soft
+        r"active\s+(secret|top\s+secret|ts/sci)(\s+(security\s+)?clearance)?(\s+(is\s+)?required)?|"
+        r"top\s+secret\s+(security\s+)?(clearance\s+)?(is\s+)?required|"
         # a few words allowed: "obtain and maintain a U.S. government issued security clearance"
         r"(obtain|maintain|eligible\s+for)(\s+[\w./-]+){0,6}?\s+security\s+clearance|"
         r"\bitar\b|export\s+control(led)?\s+.{0,40}u\.?s\.?\s+person|"
@@ -36,7 +41,11 @@ BLOCKERS = {
         r"(provide\s+|offer\s+)?(visa\s+)?sponsor|"
         r"no\s+(visa\s+)?sponsorship|sponsorship\s+(is\s+)?not\s+(available|offered|provided)|"
         r"without\s+(the\s+need\s+for\s+)?(current\s+or\s+future\s+)?(visa\s+|employer\s+)?sponsorship|"
-        r"not\s+(accept|eligible\s+for)\s+.{0,20}\b(opt|cpt)\b",
+        r"not\s+(accept|eligible\s+for)\s+.{0,20}\b(opt|cpt)\b|"
+        r"not\s+eligible\s+for\s+(employment\s+)?(visa\s+)?sponsorship|"          # Genworth
+        r"not\s+offering\b[^.]{0,40}?\bsponsorship|"                             # Avride
+        r"(does\s+not|doesn't|will\s+not)\s+(now\s+or\s+in\s+the\s+future\s+)?"   # Accenture Federal
+        r"require\s+(visa\s+)?sponsorship",
         re.I,
     ),
 }
@@ -201,7 +210,37 @@ def min_years(text: str) -> int | None:
     return min(max(g) for g in groups) if groups else None
 
 
-def check(text: str) -> tuple[bool, str | None, int | None, list[str]]:
+# --- Is it actually a software job? ---
+# Titles like "Performance Engineer" or "Platform Engineer" can be building/HVAC roles
+# (Johnson Controls). Unless the title says software, the description must show it.
+# Cloud / SRE / DevOps / ML titles count too: a first pass without them skipped real SRE,
+# ML-infra and "Cloud Engineer (AWS)" jobs (Mistral, Navan, DRW, Contact Government Services).
+SOFTWARE_TITLE = re.compile(
+    r"software|developer|\bswe\b|\bsde\b|full[\s-]?stack|back[\s-]?end|front[\s-]?end|forward\s+deployed|"
+    r"machine\s+learning|\bml\b|\bai\b|\bllms?\b|site\s+reliability|\bsre\b|devops|\bcloud\b", re.I)
+# Infra/ML terms separate real platform jobs from construction/HVAC ones (which had none).
+# Not "automation": HVAC postings say "building automation systems".
+SIGNALS = re.compile(
+    r"\b(software|programming|code|python|java|javascript|typescript|golang|apis?|aws|gcp|azure|kubernetes|"
+    r"docker|sql|linux|terraform|ci/cd|pytorch|tensorflow|machine\s+learning|distributed\s+systems|scripting|"
+    r"bash|rust|ruby|scala|kafka|spark|gpus?|cuda|infrastructure[\s-]as[\s-]code|ansible|helm|observability|"
+    r"microservices|back[\s-]?end|devops|llms?|inference|data\s+pipelines?|git|github|ec2|s3|cloudformation)\b"
+    r"|(?<![\w+])c\+\+(?![\w+])", re.I)
+GO = re.compile(r"\bGo\b")
+URL = re.compile(r"https?://\S+")   # case-sensitive: the language, not "go above and beyond"
+MIN_SIGNALS = 2
+
+
+def software_signals(text: str) -> set[str]:
+    """Distinct software terms ("APIs" and "API" count once). URLs are ignored: a privacy-notice
+    link like "...assets-public.s3.us-east-2.amazonaws.com" is not an S3 job (Saronic)."""
+    text = URL.sub(" ", text)
+    found = {re.sub(r"\s+", " ", m.group(0).lower()) for m in SIGNALS.finditer(text)}
+    found = {f[:-1] if f in ("apis", "gpus", "llms") else f for f in found}
+    return found | ({"go"} if GO.search(text) else set())
+
+
+def check(text: str, title: str = "") -> tuple[bool, str | None, int | None, list[str]]:
     """Returns (ok, skip_reason, min_years, flags)."""
     text = text or ""
     flags = []
@@ -218,6 +257,8 @@ def check(text: str) -> tuple[bool, str | None, int | None, list[str]]:
     if "clearance preferred" not in flags and any(
             SOFT_CLEARANCE.search(sentence(text, m)) for m in CLEARANCE.finditer(text)):
         flags.append("clearance preferred")   # "Security clearance preferred", "... is a plus"
+    if title and not SOFTWARE_TITLE.search(title) and len(software_signals(text)) < MIN_SIGNALS:
+        return False, "not software", min_years(text), flags
     yrs = min_years(text)
     if SENIOR_ROLE.search(text):
         return False, "senior role", yrs, flags

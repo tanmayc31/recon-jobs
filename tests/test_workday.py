@@ -110,3 +110,13 @@ def test_known_jobs_skip_detail(monkeypatch):
     known = {"workday:capitalone:R1000001": ("match", None, 2)}   # the Software Engineer II posting
     jobs = asyncio.run(workday.fetch(mock([SEARCH], calls), dict(CO, known=known)))
     assert not [c for c in calls if c[0] == "GET"] and len(jobs) == 3
+
+
+def test_search_id_uses_bullet_matching_path():
+    # Real F5 search result: bullets[0] is "0", the requisition is the second bullet
+    f5 = {"externalPath": "/job/Field-MA/Forward-Deployed-Engineer---AI-Cybersecurity_RP1038981",
+          "bulletFields": ["0", "RP1038981"]}
+    assert workday.search_id(f5) == "RP1038981"
+    cap1 = {"externalPath": "/job/Plano-TX/Full-stack-Engineer-4_R1003192-1", "bulletFields": ["R1003192"]}
+    assert workday.search_id(cap1) == "R1003192"
+    assert workday.search_id({"externalPath": "/job/x/No-Req", "bulletFields": ["0"]}) == "/job/x/No-Req"

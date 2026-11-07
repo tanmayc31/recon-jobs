@@ -178,3 +178,71 @@ def test_clearance_wish_still_only_flags():
         ok, reason, _, flags = check(text)
         assert ok and reason is None and flags == ["clearance preferred"], text
     assert check("Eligible for a TSA PreCheck sci-fi club")[0]   # no TS/SCI false positive
+
+
+def test_missed_sponsorship_phrasings():
+    # Real sentences from New jobs that should have been blocked
+    genworth = ("POSITION TITLE Software Engineer - Java Development This role is not eligible for "
+                "employment visa sponsorship. POSITION LOCATION Lynchburg, VA")
+    avride = ("Candidates are required to be authorized to work in the U.S. The employer is not offering "
+              "relocation, sponsorship, and remote work options are not available.")
+    accenture = ("Applicants for employment in the US must have work authorization that does not now or in the "
+                 "future require sponsorship of a visa for employment authorization in the United States.")
+    for text in (genworth, avride, accenture):
+        assert check(text)[1] == "no sponsorship", text
+    # "authorized to work in the US" alone is still not a blocker
+    assert check("Candidates are required to be authorized to work in the U.S.")[0]
+
+
+def test_active_top_secret_required_beats_later_preferred():
+    # Real Accenture Federal "Power Platforms Developer" bullet run-on
+    text = ("1+ year of experience with Power BI and SharePoint Active Top Secret required with ability to "
+            "obtain SCI Preferred Qualifications: Microsoft Power Platform certifications")
+    assert check(text)[1] == "citizenship/clearance"
+
+
+def test_years_in_a_role():
+    # Real F5 "Forward Deployed Engineer - AI Security"
+    text = ("Skills & Experience : 8+ years in a Post-Sales technical role (e.g., TAM, Solutions Engineer, "
+            "Integration Engineer, Implementation Engineer)")
+    assert min_years(text) == 8
+    assert check(text)[1] == "8+ years"
+
+
+# Real Johnson Controls "Performance Engineer - Sustainable Infrastructure Services" (building/HVAC)
+JCI = 'What you will do As a member of the Sustainability Infrastructure Services (SIS) Team, the site performance engineer will participate in design-build and SIS infrastructure projects as a Facility Management/Building Engineering subject matter expert providing support to the Site Customer Business Managers. You will design conceptual solutions and operating plans for our sites. You are to have advanced understanding of energy management, security fire systems, building automation systems and services, operations and maintenance, facilities management, and are to be able to combine these capabil AC, building automation, and fire and life safety. Building design or construction experience with excellent knowledge of building-related systems and services Experience working in healthcare environments is an asset 5+ years of experience in engineering and facility operations is preferred. Abilit'
+
+
+def test_not_software_gate():
+    assert check(JCI, "Performance Engineer - Sustainable Infrastructure Services")[1] == "not software"
+    # real Goodfire "Platform Engineer": software + APIs
+    goodfire = ("We're looking for Platform Engineers to build the infrastructure and services behind Goodfire's "
+                "interpretability platform. Build shared services and APIs: create the foundations that research "
+                "tools and customer products use. Working with software engineers and researchers.")
+    assert check(goodfire, "Platform Engineer")[0]
+    # real Salient "Cloud Infrastructure Engineer": AWS + GCP
+    salient = ("We're hiring a Cloud Infrastructure Engineer to own Salient's cloud footprint across AWS, GCP, "
+               "and Render. You will make our infrastructure consistent across providers.")
+    assert check(salient, "Cloud Infrastructure Engineer")[0]
+    # a software title needs no signals; no title (old callers) skips the gate
+    assert check(JCI, "Software Engineer, Building Systems")[0]
+    assert check(JCI)[0]
+
+
+def test_software_signals():
+    from recon.eligibility import software_signals
+    assert software_signals("Go above and beyond. Code in Go and C++ against our APIs.") == {"code", "go", "c++", "api"}
+    assert software_signals("We go the extra mile on building codes.") == set()
+
+
+def test_not_software_gate_second_pass():
+    # Real titles a first, narrower version skipped: SRE / Cloud titles are software
+    assert check("Own fleet health and delivery for our GPU clusters on Kubernetes.",
+                 "Site Reliability Engineer, Fleet Health & Delivery")[0]
+    assert check("Design and maintain AWS environments for federal customers.", "Cloud Engineer (AWS)")[0]
+    # Real Saronic "Civil/Site Engineer - Infrastructure": construction "programming" + an S3 URL in
+    # the privacy notice are not software signals
+    saronic = ("Participate in the early programming and development of various capital project scopes of "
+               "work. CCPA Notice for Candidates and California Employees "
+               "https://saronic-assets-public.s3.us-east-2.amazonaws.com/Saronic%20CCPA%20Notice")
+    assert check(saronic, "Civil/Site Engineer \u2013 Infrastructure")[1] == "not software"

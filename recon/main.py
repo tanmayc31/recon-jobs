@@ -70,8 +70,12 @@ async def fetch_company(client, sems, company, deadline, outcome):
 async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str] | None = None):
     """recheck=True re-fetches descriptions and re-judges every job (after a filter change)."""
     started = time.monotonic()
+    # Read what we need, then close: fetching takes up to ~10 min and Supabase's pooler drops
+    # idle connections (a Workday lane crashed at save time). A fresh connection does the writes.
     store = Store(url=os.environ.get("DATABASE_URL"))   # blank/unset -> local SQLite
     known = {} if recheck else store.known_jobs()
+    seen = store.seen_companies()
+    store.close()
     companies = [c for c in load_companies()
                  if (not tiers or int(c["tier"]) in tiers) and (not ats or c["ats"] in ats)]
     for c in companies:
@@ -84,8 +88,8 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
             fetch_company(client, sems, c, started + DEADLINE, outcome) for c in companies))
     all_jobs = [j for jobs in results if jobs for j in jobs]
 
-    seen = store.seen_companies()
-    new_matches, backlog, skipped, rows, kept, still_listed = [], 0, Counter(), [], {}, []
+    store = Store(url=os.environ.get("DATABASE_URL"))
+    new_matches, backlog, unverified, skipped, rows, kept, still_listed = [], 0, 0, Counter(), [], {}, []
 
     for j in all_jobs:
         if j.job_id in known:   # judged before: keep the stored verdict, just note it's still listed
@@ -99,7 +103,13 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
             continue
         # a company's first run is its existing backlog, not news
         status = "new" if j.company in seen else "backlog"
-        ok, reason, yrs, desc_flags = eligibility.check(j.description)   # stage 2: description
+        if not j.description.strip():
+            # the description request failed: can't judge it, so not a match. Hidden from every
+            # tab and retried next run (known_jobs skips unverified rows)
+            rows.append((j, "unverified", "no description", None, status))
+            unverified += 1
+            continue
+        ok, reason, yrs, desc_flags = eligibility.check(j.description, j.title)   # stage 2: description
         if not ok:
             skipped["too many years" if "years" in reason else reason] += 1
             rows.append((j, "skip", reason, yrs, status))
@@ -129,6 +139,8 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     print("Companies: " + ", ".join(f"{k}: {v}" for k, v in outcome.most_common()))
     print("Skipped by description: " + (", ".join(f"{k}: {v}" for k, v in skipped.most_common()) or "none"))
 
+    if unverified:
+        print(f"Unverified (no description, retried next run): {unverified}")
     if backlog:
         print(f"\n📦 {backlog} backlog matches saved from first-time companies (not shown as new)")
     print(f"\n🆕 {len(new_matches)} new matches since last run\n")
