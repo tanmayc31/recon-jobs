@@ -61,7 +61,9 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
 function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
   const autoSkipped = job.decision === "skip";
-  const flags = !autoSkipped && job.reason ? job.reason.split(", ") : [];
+  const allFlags = !autoSkipped && job.reason ? job.reason.split(", ") : [];
+  const flags = allFlags.filter((f) => !f.startsWith("exp cap"));
+  const cap = expCap(allFlags, job.ai_max_years);
   const edited = updated(job.posted_at, job.site_updated_at);
   // Tab names match statuses: offer every move except "stay here". An auto-skipped job
   // set back to "new" would still sit in Skipped, and backlog isn't news, so no "Back to New".
@@ -98,6 +100,14 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
         {job.min_years != null && job.min_years > 0 && (
           <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">
             {job.min_years}+ yrs
+          </span>
+        )}
+        {cap && (
+          <span
+            title="The posting caps experience below your ~3 years. Your call."
+            className="rounded-full bg-amber-400 px-2 py-0.5 font-semibold text-amber-950 ring-1 ring-amber-500 dark:bg-amber-500 dark:text-amber-950"
+          >
+            ⚠ {cap}
           </span>
         )}
         {flags.map((f) => (
@@ -162,4 +172,12 @@ function FitScore({ score }: { score: number }) {
       {score}
     </span>
   );
+}
+
+// Rule filter's flag ("exp cap: max 18 mo") if it found one, else the AI's cap (under 3 years)
+function expCap(flags: string[], aiMaxYears: number | null): string | null {
+  const rule = flags.find((f) => f.startsWith("exp cap"));
+  if (rule) return rule;
+  if (aiMaxYears == null || aiMaxYears >= 3) return null;
+  return `exp cap: max ${aiMaxYears} ${aiMaxYears === 1 ? "yr" : "yrs"}`;
 }

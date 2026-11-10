@@ -89,7 +89,7 @@ def is_soft(reason: str, text: str, m: re.Match) -> bool:
 # --- Early-career windows: experience caps, start dates, graduation dates ---
 YOU_GRADUATE = (2026, 12)   # (year, month)
 EARLIEST_START = (2027, 1)
-MIN_CAP_YEARS = 3           # block caps below this ("no more than 18 months")
+MIN_CAP_YEARS = 3           # flag caps below this ("no more than 18 months"); you decide
 
 MONTH = (r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|"
          r"sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?")
@@ -141,6 +141,13 @@ def experience_cap(text: str) -> re.Match | None:
         if (n / 12 if unit.lower().startswith("month") else n) < MIN_CAP_YEARS:
             return m
     return None
+
+
+def cap_flag(m: re.Match) -> str:
+    """'no more than 18 months ...' -> 'exp cap: max 18 mo'; '0-2 years' -> 'exp cap: max 2 yrs'."""
+    n, unit = (m["n"], m["unit"]) if m["n"] else (m["n2"], m["unit2"])
+    n = NUM_WORDS.get(n.lower()) or int(n)
+    return f"exp cap: max {n} {'mo' if unit.lower().startswith('month') else 'yr' if n == 1 else 'yrs'}"
 
 
 def early_start(text: str) -> re.Match | None:
@@ -262,8 +269,8 @@ def check(text: str, title: str = "") -> tuple[bool, str | None, int | None, lis
     yrs = min_years(text)
     if SENIOR_ROLE.search(text):
         return False, "senior role", yrs, flags
-    if experience_cap(text):
-        return False, "experience cap", yrs, flags
+    if cap := experience_cap(text):
+        flags.append(cap_flag(cap))   # a match you decide on, not a skip
     if early_start(text):
         return False, "start date", yrs, flags
     if grad_outside(text):

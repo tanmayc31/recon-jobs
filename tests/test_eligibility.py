@@ -109,17 +109,20 @@ STRIPE_EARLY = ("Minimum requirements Must be available to start full-time befor
                 "programming")
 
 
-def test_experience_cap():
+def test_experience_cap_is_a_flag_not_a_skip():
     assert experience_cap(STRIPE_EARLY)
-    # Real Notion, OpenAI, MongoDB
+    # Real Notion, OpenAI, MongoDB: kept as matches, with the cap shown
     assert check("SKILLS YOU'LL NEED TO BRING\n\n - You have less than two years of engineering experience. "
-                 "You have solid fundamentals")[1] == "experience cap"
-    assert check("- 0-1 years of experience in software engineering or a relevant field")[1] == "experience cap"
+                 "You have solid fundamentals")[::3] == (True, ["exp cap: max 2 yrs"])
+    assert check("- 0-1 years of experience in software engineering or a relevant field")[::3] == \
+        (True, ["exp cap: max 1 yr"])
     assert check("Recent graduates (including Summer 2026) or professionals with up to 18 months of "
-                 "experience.")[1] == "experience cap"
-    # Caps on internship experience don't count; caps of 3+ years don't block
+                 "experience.")[::3] == (True, ["exp cap: max 18 mo"])
+    # Caps on internship experience don't count; caps of 3+ years aren't flagged
     assert not experience_cap("no more than 6 months of internship experience")
     assert not experience_cap("less than 5 years of professional experience")
+    # minimums of 5+ still skip
+    assert check("5+ years of professional software engineering experience")[1] == "5+ years"
 
 
 def test_start_date():

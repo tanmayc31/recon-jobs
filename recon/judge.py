@@ -1,7 +1,8 @@
 """AI judge: Gemini (free tier) reads each rule-filter match against your profile.
 
 Scores fit 0-100 and double-checks the hard gates. A veto (no sponsorship, citizenship/
-clearance, not software, more than 4 years) turns the match into a skip. Runs on unjudged
+clearance, not software, more than 4 years) turns the match into a skip. An experience
+cap under MY_YEARS is only flagged (saved as ai_max_years; the dashboard shows it). Runs on unjudged
 matches, newest first, a capped number per run; whatever is left gets judged next run.
 """
 import argparse
@@ -26,7 +27,7 @@ PACE = 13           # seconds between requests: the free tier allows about 5 a m
 MAX_WAIT = 60       # longest back-off after a 429 before the one retry
 DESC_CHARS = 6000   # description sent to the model
 MAX_YEARS = 4
-MY_YEARS = 3        # your full-time experience: a posting capped below this is out
+MY_YEARS = 3        # your full-time experience: a posting capped below this gets flagged
 
 # contact info never leaves the machine
 EMAIL = re.compile(r"\S+@\S+\.\w+")
@@ -107,9 +108,15 @@ def veto(a: dict) -> str | None:
         return "ai: not software"
     if (a["required_years"] or 0) > MAX_YEARS:
         return f"ai: {a['required_years']}+ years"
-    if a["max_years_allowed"] is not None and a["max_years_allowed"] < MY_YEARS:
-        return "ai: experience cap"
     return None
+
+
+def cap_flag(a: dict) -> str | None:
+    """'exp cap: max 2 yrs' if the posting caps experience below yours; a flag, not a skip."""
+    n = a["max_years_allowed"]
+    if n is None or n >= MY_YEARS:
+        return None
+    return f"exp cap: max {n} {'yr' if n == 1 else 'yrs'}"
 
 
 def clean(a: dict) -> dict:
@@ -198,11 +205,12 @@ async def run(limit: int = CAP, pace: float = PACE, transport=None):
         return results
     for job, a, skip in sorted(results, key=lambda x: -x[1]["fit_score"]):
         years = f", {a['required_years']}+ yrs" if a["required_years"] else ""
-        years += f", max {a['max_years_allowed']} yrs" if a["max_years_allowed"] is not None else ""
         print(f"\n{a['fit_score']:>3}  {job['company']} | {job['title']}"
               f"  [{a['resume']} resume, {a['seniority']}{years}, sponsorship {a['sponsorship']}]")
         if skip:
             print(f"     SKIP {skip}")
+        elif cap_flag(a):
+            print(f"     FLAG {cap_flag(a)}")
         print(f"     {a['why']}")
         if a["missing_skills"]:
             print(f"     missing: {', '.join(a['missing_skills'])}")

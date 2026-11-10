@@ -60,11 +60,12 @@ def test_vetoes():
     assert judge.veto(dict(GOOD, required_years=5)) == "ai: 5+ years"
     assert judge.veto(dict(GOOD, required_years=4)) is None
     assert judge.veto(dict(GOOD, required_years=None)) is None
-    # Harvey New Grad: "less than 18 months of professional experience" -> 1
-    assert judge.veto(dict(GOOD, required_years=None, max_years_allowed=1)) == "ai: experience cap"
-    assert judge.veto(dict(GOOD, max_years_allowed=2)) == "ai: experience cap"   # "0-2 years"
-    assert judge.veto(dict(GOOD, max_years_allowed=0)) == "ai: experience cap"
-    assert judge.veto(dict(GOOD, max_years_allowed=3)) is None
+
+    # experience caps are flagged, never vetoed: "less than 18 months" -> 1, "0-2 years" -> 2
+    for cap, flag in [(0, "exp cap: max 0 yrs"), (1, "exp cap: max 1 yr"), (2, "exp cap: max 2 yrs"),
+                      (3, None), (None, None)]:
+        assert judge.veto(dict(GOOD, max_years_allowed=cap)) is None
+        assert judge.cap_flag(dict(GOOD, max_years_allowed=cap)) == flag
 
 
 def test_scores_newest_first_and_vetoes_become_skips(tmp_path, monkeypatch):
@@ -165,9 +166,10 @@ def test_queue_new_first_then_backlog_by_tier(tmp_path):
     assert [r["job_id"][-1] for r in s.unscored(10)] == ["5", "4", "3", "2", "1", "6"]
 
 
-def test_experience_cap_is_saved_and_vetoes(tmp_path, monkeypatch):
+def test_experience_cap_is_saved_and_stays_a_match(tmp_path, monkeypatch, capsys):
     s = setup(tmp_path, monkeypatch, [job(1)])
     asyncio.run(judge.run(limit=10, pace=0, transport=httpx.MockTransport(
         lambda r: gemini(dict(GOOD, required_years=None, max_years_allowed=1)))))
-    assert row(s, "greenhouse:co:1")[:2] == ("skip", "ai: experience cap")
+    assert row(s, "greenhouse:co:1")[:2] == ("match", None)
+    assert "FLAG exp cap: max 1 yr" in capsys.readouterr().out
     assert s.execute("SELECT ai_max_years FROM jobs").fetchone()[0] == 1
