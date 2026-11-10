@@ -20,6 +20,15 @@ python -m recon.main --recheck     # re-judge known jobs too (after changing fil
 Known jobs keep their stored verdict, so Recon only fetches descriptions for job IDs it has
 never seen. Use --recheck after editing filters.py or eligibility.py to apply the new rules.
 
+## H-1B sponsors
+python -m recon.sponsors data/LCA_Disclosure_Data_FY2025_Q*.xlsx   # rebuilds config/sponsors.csv
+
+Ranks employers by certified H-1B LCA filings for software roles (DOL OFLC disclosure data,
+public), marks the ones companies.csv already covers, and finds the ATS of the top 500 missing
+ones. Download a fiscal year's four quarterly xlsx files in a browser (dol.gov blocks scripts)
+from https://www.dol.gov/agencies/eta/foreign-labor/performance into data/ (gitignored).
+Needs `pip install python-calamine` to read them.
+
 ## AI judge
 python -m recon.judge --limit 10   # score 10 unjudged matches (default 40)
 

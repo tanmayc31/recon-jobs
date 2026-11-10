@@ -13,6 +13,11 @@ def test_parse_real_simplify_links():
         == ("workday", "caci|wd1|external")
     assert parse_board("https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/x") \
         == ("workday", "nvidia|wd5|NVIDIAExternalCareerSite")
+    # myworkdaysite.com links (real Wells Fargo, Chewy, HCA): the API is served on myworkdayjobs.com
+    assert parse_board("https://wd1.myworkdaysite.com/recruiting/wf/WellsFargoJobs") \
+        == ("workday", "wf|wd1|WellsFargoJobs")
+    assert parse_board("https://wd5.myworkdaysite.com/en-US/recruiting/chewy/External/job/Boston-MA/"
+                       "Software-Engineer-I_R123") == ("workday", "chewy|wd5|External")
 
 
 def test_skips_embed_eu_and_other_ats():

@@ -53,6 +53,22 @@ Salesforce,workday,salesforce|wd12|External_Career_Site,1
 Nvidia,workday,nvidia|wd5|NVIDIAExternalCareerSite,1
 Adobe,workday,adobe|wd5|external_experienced,1
 Workday,workday,workday|wd5|Workday,2
+Fidelity Investments,workday,fmr|wd1|fidelitycareers,2
+Comcast,workday,comcast|wd115|Comcast_Careers,2
+Synechron,workday,synechron|wd1|SynechronCareers,2
+Wells Fargo,workday,wf|wd1|WellsFargoJobs,2
+AT&T,workday,att|wd1|attgeneral,2
+USAA,workday,usaa|wd1|USAAJOBSWD,2
+RTX,workday,globalhr|wd5|REC_RTX_Ext_Gateway,2
+Autodesk,workday,autodesk|wd1|Ext,2
+Chewy,workday,chewy|wd5|External,2
+HCA Healthcare,workday,hcahealthcare|wd3|hcacareers,2
+Cox,workday,cox|wd1|cox_external_career_site_1,2
+J.B. Hunt,workday,jbhunt|wd501|Careers,2
+7-Eleven,workday,my7elevenhr|wd12|Careers,2
+Zoetis,workday,zoetis|wd5|zoetis,2
+Rivian,ashby,rivianvw.tech,2
+Inovalon,ashby,inovalon,2
 Choice Hotels,workday,choicehotels|wd5|External,3
 CACI,workday,caci|wd1|external,3
 Twitch,greenhouse,twitch,3
@@ -82,7 +98,6 @@ Bloom & Wild Group,lever,bloomon,3
 Applied Materials,workday,amat|wd1|External,3
 SirenOpt,greenhouse,sirenopt,3
 CLEAR,greenhouse,clear,3
-RTX,workday,globalhr|wd5|Private_Posting_No_TMP,3
 Agilent Technologies,workday,agilent|wd5|Agilent_Student_Careers,3
 AeroVironment,workday,avav|wd1|avav,3
 KLA,workday,kla|wd1|annarbor,3
@@ -786,7 +801,6 @@ Atlas Hxm,greenhouse,atlasxhm,3
 Atom Computing,lever,atomcomputing,3
 Atomic Cartoons,greenhouse,atomiccartoons,3
 Atoms Careers Page,greenhouse,cssmerge,3
-Att,workday,att|wd1|attgeneral,3
 Attain,greenhouse,attain,3
 Attain Partners,greenhouse,attainpartners,3
 Attentive,greenhouse,attentive,3
@@ -1040,7 +1054,6 @@ Cantina,ashby,cantina,3
 Canto,greenhouse,canto,3
 Capco,greenhouse,capco,3
 Cape,ashby,cape,3
-Capgemini,greenhouse,cambridgeconsultantslimited,3
 Capintel,greenhouse,capintel,3
 Capital Farm Credit,greenhouse,capitalfarmcredit,3
 Capital Group,workday,capgroup|wd1|capitalgroupcareers,3
@@ -1246,7 +1259,6 @@ Coupa Software Inc,lever,coupa,3
 Coupang,greenhouse,coupang,3
 Coursera,greenhouse,coursera,3
 Coverdash,ashby,coverdash,3
-Cox,workday,cox|wd1|cox_external_career_site_1,3
 Cracker Barrel,workday,cbrlgroup|wd503|crackerbarrelexternal,3
 Cradle,ashby,cradlebio,3
 Cranial Technologies,greenhouse,cranialtechnologies,3
@@ -1556,7 +1568,6 @@ Ffg Finanzcheck Finanzportale Gmbh,greenhouse,finanzcheck,3
 Fgs Global,greenhouse,fgsglobal,3
 Fictiv,greenhouse,fictiv,3
 Fidelity International,workday,fil|wd3|001,3
-Fidelity Investments,workday,fil|wd3|fidelitycanada,3
 Fieldwire,greenhouse,fieldwire,3
 Fielmann,workday,fielmann|wd3|external,3
 Fifth Third Bank,workday,fifththird|wd5|53careers,3
@@ -2111,7 +2122,7 @@ Krafton Americas,greenhouse,kraftonamericas,3
 Krafton Montr Al Studio,greenhouse,studiokraftonboard,3
 Kraken,ashby,kraken.com,3
 Krea Ai,ashby,krea,3
-Kroger,greenhouse,8451,3
+84.51 (Kroger),greenhouse,8451,3
 Kulfi Collective,greenhouse,kulficollective,3
 Kunai,greenhouse,kunai,3
 Kura Oncology,greenhouse,kuraoncology,3

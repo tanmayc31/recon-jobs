@@ -35,6 +35,9 @@ BOARD_URL = [
     ("ashby", re.compile(r"^https?://jobs\.ashbyhq\.com/([^/?#]+)", re.I)),
     ("workday", re.compile(
         r"^https?://([\w-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([\w-]+)", re.I)),
+    # same boards on Workday's other domain: wd1.myworkdaysite.com/recruiting/<tenant>/<site>
+    ("workday-site", re.compile(
+        r"^https?://(wd\d+)\.myworkdaysite\.com/(?:[a-z]{2}-[A-Z]{2}/)?recruiting/([\w-]+)/([\w-]+)", re.I)),
 ]
 
 
@@ -44,6 +47,9 @@ def parse_board(url: str) -> tuple[str, str] | None:
         m = rx.match(url)
         if not m:
             continue
+        if ats == "workday-site":
+            wd, tenant, site = m.groups()
+            return "workday", f"{tenant}|{wd}|{site}"
         if ats == "workday":
             tenant, wd, site = m.groups()
             if site.lower() in ("wday", "job"):
