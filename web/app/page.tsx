@@ -75,17 +75,20 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
           <h2 className="mt-0.5 font-semibold leading-snug">{job.title}</h2>
           {job.location && <p className="mt-1 line-clamp-2 text-sm text-zinc-500">{job.location}</p>}
         </div>
-        {job.tier != null && (
-          <span
-            className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold ${
-              job.tier === 1
-                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
-                : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-            }`}
-          >
-            T{job.tier}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {job.fit_score != null && <FitScore score={job.fit_score} />}
+          {job.tier != null && (
+            <span
+              className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+                job.tier === 1
+                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
+                  : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+              }`}
+            >
+              T{job.tier}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
@@ -103,6 +106,20 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
           </span>
         ))}
       </div>
+
+      {job.ai_why && (
+        <div className="mt-3 space-y-1 text-sm">
+          <p className="text-zinc-700 dark:text-zinc-300">
+            {job.ai_resume && (
+              <span className="mr-1.5 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-900/50 dark:text-violet-300">
+                {job.ai_resume === "ai" ? "AI resume" : "General resume"}
+              </span>
+            )}
+            {job.ai_why}
+          </p>
+          {job.ai_missing && <p className="text-zinc-500">Missing: {job.ai_missing}</p>}
+        </div>
+      )}
 
       {tab === "skipped" && (
         <p className="mt-2 text-sm text-red-700 dark:text-red-400">
@@ -130,5 +147,19 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
         ))}
       </div>
     </li>
+  );
+}
+
+function FitScore({ score }: { score: number }) {
+  const color =
+    score >= 80
+      ? "bg-emerald-600 text-white dark:bg-emerald-500 dark:text-emerald-950"
+      : score >= 50
+        ? "bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200"
+        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400";
+  return (
+    <span title="AI fit score" className={`rounded-md px-2 py-0.5 text-xs font-bold tabular-nums ${color}`}>
+      {score}
+    </span>
   );
 }

@@ -7,6 +7,7 @@ name: recon
 #   3-workday  Tier 3 Workday                       every 6 h
 # Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
 # filter rules reach old jobs.
+# AI judge: after each normal 1-2 run, scores up to 40 unjudged matches from any lane.
 on:
   schedule:
     - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US
@@ -55,3 +56,26 @@ jobs:
       recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  judge:
+    needs: tier-1-2
+    # still judge when the fetch failed (the queue is in the database); never on rechecks
+    if: ${{ !cancelled() && inputs.lane == '1-2' && !inputs.recheck }}
+    concurrency:
+      group: recon-judge
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15       # 40 jobs x 13s pacing is about 9 min
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: AI judge (counts only; logs are public)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CANDIDATE_PROFILE: ${{ secrets.CANDIDATE_PROFILE }}
+        run: python -m recon.judge

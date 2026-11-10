@@ -20,6 +20,15 @@ python -m recon.main --recheck     # re-judge known jobs too (after changing fil
 Known jobs keep their stored verdict, so Recon only fetches descriptions for job IDs it has
 never seen. Use --recheck after editing filters.py or eligibility.py to apply the new rules.
 
+## AI judge
+python -m recon.judge --limit 10   # score 10 unjudged matches (default 40)
+
+Gemini (free tier) scores each match 0-100 against your profile and double-checks the
+hard gates; a veto (no sponsorship, citizenship/clearance, not software, >4 years) moves it
+to Skipped as "ai: <reason>". Needs GEMINI_API_KEY plus your profile in config/profile.md
+(gitignored) or the CANDIDATE_PROFILE secret. Emails, phone numbers and links are stripped
+before sending. Leave your name and address out of the profile.
+
 ## 3. Run tests
 python -m pytest -q
 

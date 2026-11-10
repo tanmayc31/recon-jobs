@@ -9,6 +9,11 @@ from pathlib import Path
 from recon.models import Job
 
 DB = Path(__file__).parent.parent / "data" / "recon.db"
+DESC_CHARS = 8000   # stored description length (matches only)
+AI_COLUMNS = [("description", "TEXT"), ("fit_score", "INTEGER"), ("ai_why", "TEXT"),
+              ("ai_missing", "TEXT"), ("ai_resume", "TEXT"), ("ai_seniority", "TEXT"),
+              ("ai_sponsorship", "TEXT"), ("ai_years", "INTEGER"), ("ai_max_years", "INTEGER"), ("ai_skip", "TEXT"),
+              ("ai_scored_at", "TEXT")]
 
 SCHEMA = ["""
 CREATE TABLE IF NOT EXISTS jobs (
@@ -26,7 +31,19 @@ CREATE TABLE IF NOT EXISTS jobs (
     reason        TEXT,   -- why skipped, or flags for matches
     min_years     INTEGER,
     site_updated_at TEXT, -- the site's last-edit time, when it has one (Greenhouse)
-    status        TEXT DEFAULT 'new'   -- new / backlog / applied / later / skipped / closed
+    status        TEXT DEFAULT 'new',  -- new / backlog / applied / later / skipped / closed
+    description   TEXT,   -- matches only (trimmed), for the AI judge
+    -- AI judge (recon/judge.py); ai_scored_at is NULL until judged
+    fit_score     INTEGER,
+    ai_why        TEXT,
+    ai_missing    TEXT,   -- comma-separated skills
+    ai_resume     TEXT,   -- 'ai' or 'general'
+    ai_seniority  TEXT,
+    ai_sponsorship TEXT,  -- ok / no / unclear
+    ai_years      INTEGER,
+    ai_max_years  INTEGER, -- most experience the posting allows (null: no cap)
+    ai_skip       TEXT,   -- 'ai: <reason>' if the AI vetoed it; survives --recheck
+    ai_scored_at  TEXT
 );
 """, """
 CREATE TABLE IF NOT EXISTS companies (
@@ -54,7 +71,8 @@ class Store:
         for statement in SCHEMA:
             self.db.execute(statement)
         self.db.commit()
-        self.add_column("site_updated_at", "TEXT")   # tables made before this column existed
+        for name, kind in [("site_updated_at", "TEXT")] + AI_COLUMNS:   # tables made before these existed
+            self.add_column(name, kind)
 
     def add_column(self, name: str, kind: str):
         try:
@@ -107,28 +125,60 @@ class Store:
     def upsert_many(self, rows: list[tuple[Job, str, str | None, int | None, str]]) -> set[str]:
         """Save (job, decision, reason, min_years, status) rows in two batches.
         Returns the job_ids seen for the first time. status only applies to new rows;
-        it never overwrites what the user chose."""
+        it never overwrites what the user chose. An AI veto (ai_skip) beats a rule match."""
         latest = {r[0].job_id: r for r in rows}   # a board can list the same job twice
         ids = list(latest)
-        known = set()
+        vetoed = {}   # known job_id -> ai_skip (or None)
         for i in range(0, len(ids), 1000):
             chunk = ids[i:i + 1000]
-            known |= {r[0] for r in self.execute(
-                f"SELECT job_id FROM jobs WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk))}
+            vetoed |= {r[0]: r[1] for r in self.execute(
+                f"SELECT job_id, ai_skip FROM jobs WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk))}
         t = now()
+
+        def desc(j, d):
+            return j.description[:DESC_CHARS] if d == "match" and j.description else None
+
+        updates = []
+        for j, d, r, y, _ in latest.values():
+            if j.job_id not in vetoed:
+                continue
+            if d == "match" and vetoed[j.job_id]:
+                d, r = "skip", vetoed[j.job_id]
+            updates.append((t, d, r, y, j.posted_at, j.updated_at, desc(j, d), j.job_id))
         self.executemany(
             "UPDATE jobs SET last_seen_at=?, decision=?, reason=?, min_years=?,"
-            " posted_at=COALESCE(?, posted_at), site_updated_at=COALESCE(?, site_updated_at) WHERE job_id=?",
-            [(t, d, r, y, j.posted_at, j.updated_at, j.job_id)
-             for j, d, r, y, _ in latest.values() if j.job_id in known])
+            " posted_at=COALESCE(?, posted_at), site_updated_at=COALESCE(?, site_updated_at),"
+            " description=COALESCE(?, description) WHERE job_id=?", updates)
         self.executemany(
             "INSERT INTO jobs (job_id, company, title, location, url, source, tier, posted_at,"
-            " first_seen_at, last_seen_at, decision, reason, min_years, site_updated_at, status)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " first_seen_at, last_seen_at, decision, reason, min_years, site_updated_at, status, description)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(j.job_id, j.company, j.title, j.location, j.url, j.source, j.tier,
-              j.posted_at, t, t, d, r, y, j.updated_at, s)
-             for j, d, r, y, s in latest.values() if j.job_id not in known])
-        return set(ids) - known
+              j.posted_at, t, t, d, r, y, j.updated_at, s, desc(j, d))
+             for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
+        return set(ids) - set(vetoed)
+
+    def unscored(self, limit: int) -> list[dict]:
+        """Rule-filter matches with a description and no AI verdict yet: New first, then
+        Backlog by tier (Tier 1 first), then anything else; newest first within each."""
+        cols = ["job_id", "company", "title", "location", "description"]
+        return [dict(zip(cols, r)) for r in self.execute(
+            f"SELECT {', '.join(cols)} FROM jobs WHERE decision = 'match' AND ai_scored_at IS NULL"
+            " AND description IS NOT NULL AND description <> ''"
+            " ORDER BY CASE status WHEN 'new' THEN 0 WHEN 'backlog' THEN 1 ELSE 2 END,"
+            " CASE WHEN status = 'backlog' THEN tier ELSE 0 END, first_seen_at DESC, job_id"
+            " LIMIT ?", (limit,)).fetchall()]
+
+    def save_scores(self, results: list[tuple[str, dict, str | None]]):
+        """(job_id, AI result, skip reason or None). A veto turns the match into a skip."""
+        t = now()
+        self.executemany(
+            "UPDATE jobs SET fit_score=?, ai_why=?, ai_missing=?, ai_resume=?, ai_seniority=?,"
+            " ai_sponsorship=?, ai_years=?, ai_max_years=?, ai_skip=?, ai_scored_at=?,"
+            " decision=?, reason=COALESCE(?, reason) WHERE job_id=? AND decision='match'",
+            [(a["fit_score"], a["why"], ", ".join(a["missing_skills"]), a["resume"], a["seniority"],
+              a["sponsorship"], a["required_years"], a["max_years_allowed"], skip, t, "skip" if skip else "match", skip, job_id)
+             for job_id, a, skip in results])
 
     def commit(self):
         self.db.commit()

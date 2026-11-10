@@ -36,6 +36,10 @@ export type JobRow = {
   reason: string | null;
   min_years: number | null;
   status: Status;
+  fit_score: number | null; // AI judge (recon/judge.py); null until judged
+  ai_why: string | null;
+  ai_missing: string | null; // comma-separated
+  ai_resume: "ai" | "general" | null;
 };
 
 export async function listJobs(tab: Tab): Promise<JobRow[]> {
@@ -49,11 +53,16 @@ export async function listJobs(tab: Tab): Promise<JobRow[]> {
     // you skipped it, or Recon auto-skipped it (eligibility/years) and you haven't moved it
     skipped: sql`status = 'skipped' OR (decision = 'skip' AND status IN ('new', 'backlog'))`,
   }[tab];
+  // New and Backlog: best AI fit first, unjudged last
+  const order =
+    tab === "new" || tab === "backlog"
+      ? sql`fit_score DESC NULLS LAST, first_seen_at DESC, tier, company`
+      : sql`first_seen_at DESC, tier, company`;
   return sql<JobRow[]>`
     SELECT job_id, company, title, location, url, tier, posted_at, site_updated_at, first_seen_at,
-           decision, reason, min_years, status
+           decision, reason, min_years, status, fit_score, ai_why, ai_missing, ai_resume
     FROM jobs WHERE ${where}
-    ORDER BY first_seen_at DESC, tier, company
+    ORDER BY ${order}
     LIMIT 1000`;
 }
 
