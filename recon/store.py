@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     site_updated_at TEXT, -- the site's last-edit time, when it has one (Greenhouse)
     status        TEXT DEFAULT 'new',  -- new / backlog / applied / later / skipped / closed
     description   TEXT,   -- matches only (trimmed), for the AI judge
+    openings      INTEGER DEFAULT 1,  -- Amazon: identical title + location postings in this job
+    source_ids    TEXT,   -- Amazon: the site's job IDs behind it, comma-separated
     -- AI judge (recon/judge.py); ai_scored_at is NULL until judged
     fit_score     INTEGER,
     ai_why        TEXT,
@@ -71,7 +73,8 @@ class Store:
         for statement in SCHEMA:
             self.db.execute(statement)
         self.db.commit()
-        for name, kind in [("site_updated_at", "TEXT")] + AI_COLUMNS:   # tables made before these existed
+        for name, kind in [("site_updated_at", "TEXT"), ("openings", "INTEGER DEFAULT 1"),
+                           ("source_ids", "TEXT")] + AI_COLUMNS:   # tables made before these existed
             self.add_column(name, kind)
 
     def add_column(self, name: str, kind: str):
@@ -115,12 +118,13 @@ class Store:
         return bool(self.upsert_many([(job, decision, reason, min_years, status)]))
 
     def touch_many(self, jobs: list[Job]):
-        """Known jobs still listed: refresh last_seen and the site's dates, nothing else."""
+        """Known jobs still listed: refresh last_seen, the site's dates and openings, nothing else."""
         t = now()
         self.executemany(
             "UPDATE jobs SET last_seen_at=?, posted_at=COALESCE(?, posted_at),"
-            " site_updated_at=COALESCE(?, site_updated_at) WHERE job_id=?",
-            [(t, j.posted_at, j.updated_at, j.job_id) for j in jobs])
+            " site_updated_at=COALESCE(?, site_updated_at), openings=?, source_ids=COALESCE(?, source_ids)"
+            " WHERE job_id=?",
+            [(t, j.posted_at, j.updated_at, j.openings, j.source_ids, j.job_id) for j in jobs])
 
     def upsert_many(self, rows: list[tuple[Job, str, str | None, int | None, str]]) -> set[str]:
         """Save (job, decision, reason, min_years, status) rows in two batches.
@@ -144,17 +148,18 @@ class Store:
                 continue
             if d == "match" and vetoed[j.job_id]:
                 d, r = "skip", vetoed[j.job_id]
-            updates.append((t, d, r, y, j.posted_at, j.updated_at, desc(j, d), j.job_id))
+            updates.append((t, d, r, y, j.posted_at, j.updated_at, desc(j, d), j.openings, j.source_ids, j.job_id))
         self.executemany(
             "UPDATE jobs SET last_seen_at=?, decision=?, reason=?, min_years=?,"
             " posted_at=COALESCE(?, posted_at), site_updated_at=COALESCE(?, site_updated_at),"
-            " description=COALESCE(?, description) WHERE job_id=?", updates)
+            " description=COALESCE(?, description), openings=?, source_ids=COALESCE(?, source_ids)"
+            " WHERE job_id=?", updates)
         self.executemany(
-            "INSERT INTO jobs (job_id, company, title, location, url, source, tier, posted_at,"
-            " first_seen_at, last_seen_at, decision, reason, min_years, site_updated_at, status, description)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs (job_id, company, title, location, url, source, tier, posted_at, first_seen_at,"
+            " last_seen_at, decision, reason, min_years, site_updated_at, status, description, openings, source_ids)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(j.job_id, j.company, j.title, j.location, j.url, j.source, j.tier,
-              j.posted_at, t, t, d, r, y, j.updated_at, s, desc(j, d))
+              j.posted_at, t, t, d, r, y, j.updated_at, s, desc(j, d), j.openings, j.source_ids)
              for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
         return set(ids) - set(vetoed)
 

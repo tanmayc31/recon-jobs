@@ -97,6 +97,11 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
         {job.posted_at && <span className="text-zinc-500">{posted(job.posted_at)} ·</span>}
         {edited && <span className="text-zinc-500">{edited} ·</span>}
         <span className="text-zinc-500">found {ago(job.first_seen_at)}</span>
+        {job.openings != null && job.openings > 1 && (
+          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300">
+            {job.openings} openings
+          </span>
+        )}
         {job.min_years != null && job.min_years > 0 && (
           <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">
             {job.min_years}+ yrs

@@ -12,10 +12,10 @@ import httpx
 from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
-from recon.sources import ashby, greenhouse, lever, workday
+from recon.sources import amazon, ashby, greenhouse, lever, workday
 from recon.store import Store
 
-SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday}
+SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}

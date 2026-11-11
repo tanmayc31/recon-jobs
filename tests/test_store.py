@@ -101,3 +101,16 @@ def test_touch_keeps_verdict(tmp_path):
     assert s.execute("SELECT decision, reason, posted_at FROM jobs").fetchone() == \
         ("skip", "citizenship/clearance", "2026-11-01T00:00:00Z")
     JOB.posted_at = None
+
+
+def test_openings_saved_and_refreshed(tmp_path):
+    s = Store(tmp_path / "t.db")
+    j = Job("amazon:abc", "Amazon", "SDE", "US, WA, Seattle", "u", None, "amazon", 1, openings=3,
+            source_ids="1,2,3")
+    s.upsert(j, "match", None, None)
+    j.openings, j.source_ids = 2, "2,3"          # one requisition closed
+    s.touch_many([j])
+    assert s.execute("SELECT openings, source_ids FROM jobs").fetchone() == (2, "2,3")
+    other = Job("greenhouse:co:9", "Co", "SWE", "NYC", "u", None, "greenhouse", 1)
+    s.upsert(other, "match", None, None)
+    assert s.execute("SELECT openings, source_ids FROM jobs WHERE job_id=?", (other.job_id,)).fetchone() == (1, None)

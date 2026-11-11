@@ -41,6 +41,7 @@ export type JobRow = {
   ai_missing: string | null; // comma-separated
   ai_resume: "ai" | "general" | null;
   ai_max_years: number | null; // most experience the posting allows (null: no cap)
+  openings: number | null; // Amazon: identical title + location postings collapsed into this job
 };
 
 export async function listJobs(tab: Tab): Promise<JobRow[]> {
@@ -61,7 +62,7 @@ export async function listJobs(tab: Tab): Promise<JobRow[]> {
       : sql`first_seen_at DESC, tier, company`;
   return sql<JobRow[]>`
     SELECT job_id, company, title, location, url, tier, posted_at, site_updated_at, first_seen_at,
-           decision, reason, min_years, status, fit_score, ai_why, ai_missing, ai_resume, ai_max_years
+           decision, reason, min_years, status, fit_score, ai_why, ai_missing, ai_resume, ai_max_years, openings
     FROM jobs WHERE ${where}
     ORDER BY ${order}
     LIMIT 1000`;
