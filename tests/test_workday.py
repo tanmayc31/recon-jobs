@@ -120,3 +120,116 @@ def test_search_id_uses_bullet_matching_path():
     cap1 = {"externalPath": "/job/Plano-TX/Full-stack-Engineer-4_R1003192-1", "bulletFields": ["R1003192"]}
     assert workday.search_id(cap1) == "R1003192"
     assert workday.search_id({"externalPath": "/job/x/No-Req", "bulletFields": ["0"]}) == "/job/x/No-Req"
+
+
+def facet(param, *values):
+    return {"facetParameter": param, "values": [{"descriptor": d, "id": f"{param}:{d}", "count": 1} for d in values]}
+
+
+# Real facet values from Nvidia's and RTX's boards
+NVIDIA_FACETS = [
+    facet("jobFamilyGroup", "Engineering", "Sales", "Univ Employment", "IT - Information Technology",
+          "Business Development", "Research"),
+    facet("workerSubType", "Regular Employee", "Intern (Fixed Term)", "Management", "New College Graduate",
+          "Regular Employee (Fixed Term)", "Academic (Fixed Term)"),
+    facet("timeType", "Full time", "Part time"),
+    {"facetParameter": "locationMainGroup", "values": [
+        facet("locationHierarchy1", "India", "Israel", "United States"),
+        facet("locations", "India, Bengaluru", "US, CA, Santa Clara")]},
+]
+RTX_FACETS = [
+    facet("timeType", "Full time", "Part time"),
+    facet("workerSubType", "Apprentice (Fixed Term) (Trainee)", "Intern/Co-op (Fixed Term)", "Regular", "Temporary"),
+    facet("jobFamilyGroup", "Digital Technology", "Engineering", "Operations", "Quality"),
+    {"facetParameter": "locationMainGroup", "values": [facet("locations",
+        "CA-ON-MISSISSAUGA-P22M01 ~ 1801 Courtney Park Dr ~ P22M01 BLDG",
+        "US-IA-CEDAR RAPIDS-112 ~ 400 Collins Rd NE ~ BLDG 112",
+        "US-AZ-TUCSON-801 ~ 1151 E Hermans Rd ~ BLDG 801",
+        "US-TX-RICHARDSON-111 ~ 3601 E Plano Pkwy ~ BLDG 111")]},
+]
+
+
+def names(applied):
+    return {k: [v.split(":", 1)[1] for v in ids] for k, ids in applied.items()}
+
+
+def test_big_board_facets_nvidia():
+    [applied] = workday.big_board_facets(NVIDIA_FACETS)
+    assert names(applied) == {
+        "jobFamilyGroup": ["Engineering", "Univ Employment", "IT - Information Technology"],
+        "workerSubType": ["Regular Employee", "Management", "New College Graduate"],   # no interns / fixed term
+        "timeType": ["Full time"],
+        "locationHierarchy1": ["United States"],   # the country, not every site
+    }
+
+
+def test_big_board_facets_rtx_us_sites_in_chunks(monkeypatch):
+    # RTX has no country facet: pick the US sites; 386 of them in one request gave HTTP 500
+    monkeypatch.setattr(workday, "MAX_FACET_VALUES", 2)
+    chunks = [names(a) for a in workday.big_board_facets(RTX_FACETS)]
+    assert [c["locations"] for c in chunks] == [
+        ["US-IA-CEDAR RAPIDS-112 ~ 400 Collins Rd NE ~ BLDG 112", "US-AZ-TUCSON-801 ~ 1151 E Hermans Rd ~ BLDG 801"],
+        ["US-TX-RICHARDSON-111 ~ 3601 E Plano Pkwy ~ BLDG 111"]]
+    assert all(c["workerSubType"] == ["Regular"] and c["timeType"] == ["Full time"]
+               and c["jobFamilyGroup"] == ["Digital Technology", "Engineering"] for c in chunks)
+
+
+def big_board(totals, calls, fail_once=()):
+    """Mock board: 4,633 postings unfiltered; filtered page 1 reports totals[i] for the i-th facet set."""
+    failed = set()
+
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json=DETAIL)
+        body = json.loads(req.content)
+        facets, offset = body["appliedFacets"], body["offset"]
+        calls.append((bool(facets), offset))
+        if not facets:
+            return httpx.Response(200, json={"total": 4633, "facets": NVIDIA_FACETS, "jobPostings": SEARCH[2:]})
+        if offset in fail_once and offset not in failed:
+            failed.add(offset)
+            return httpx.Response(429)
+        n = offset // workday.PAGE
+        page = [posting(f"Software Engineer {n}", "Santa Clara, CA", f"/job/x_R{n}", f"R{n}")]
+        return httpx.Response(200, json={"total": totals[0], "jobPostings": page if offset < totals[0] else []})
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_big_board_is_filtered_then_paged(monkeypatch):
+    monkeypatch.setattr(workday, "DELAY", 0)
+    calls = []
+    jobs = asyncio.run(workday.fetch(big_board([45], calls), CO))
+    assert calls[0] == (False, 0) and all(f for f, _ in calls[1:])   # every request after page 1 is filtered
+    assert [o for _, o in calls[1:]] == [0, 20, 40, 60]                # 45 filtered postings: one by one
+    assert len(jobs) == 3 and "Account Executive, Identity (West)" not in [j.title for j in jobs]
+
+
+def test_still_big_after_filtering_pages_in_parallel_and_backs_off(monkeypatch):
+    monkeypatch.setattr(workday, "DELAY", 0)
+    waits = []
+
+    async def no_wait(seconds):
+        waits.append(seconds)
+    monkeypatch.setattr(workday.asyncio, "sleep", no_wait)
+    calls = []
+    jobs = asyncio.run(workday.fetch(big_board([1500], calls, fail_once={40}), CO))
+    offsets = sorted(o for f, o in calls[1:])
+    assert offsets.count(40) == 2 and set(offsets) == set(range(0, 1500, 20))   # every page, 40 retried
+    assert 1 in waits                                                           # backed off after the 429
+    assert len(jobs) == 75
+
+
+def test_small_boards_still_page_through_everything(monkeypatch):
+    monkeypatch.setattr(workday, "DELAY", 0)
+    bodies = []
+
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json=DETAIL)
+        body = json.loads(req.content)
+        bodies.append((body["searchText"], body["offset"]))
+        return httpx.Response(200, json={"total": 3, "jobPostings": SEARCH if body["offset"] == 0 else []})
+
+    jobs = asyncio.run(workday.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), CO))
+    assert bodies == [("", 0), ("", 20)]          # page 1 reused, not fetched twice
+    assert len(jobs) == 3
