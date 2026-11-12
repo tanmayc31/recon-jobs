@@ -185,13 +185,13 @@ GENERIC = {"it", "soft", "global", "american", "united", "first", "general", "na
 SAME = {
     "maplebear": "instacart", "social finance": "sofi", "people center d/b/a rippling": "rippling",
     "block": "square", "bytedance/tiktok": "tiktok", "united automobile association": "usaa",
-    "lowe s companies": "lowe's", "visa": "🔥 visa", "united parcel service general": "united parcel service",
+    "lowe s companies": "lowe's", "united parcel service general": "united parcel service",
     "verizon data": "verizon communications", "huntington national bank": "huntington bancshares",
     "aurora operations": "aurora innovation", "cloud software": "citrix", "at and t": "at&t",
     "cox automotive corporate": "cox", "rockwell collins": "rtx", "hca management": "hca healthcare",
     "kroger": "84.51 (kroger)",
     # subsidiaries hiring through the parent's board we already track
-    "caremark": "cvs health", "aetna resources": "cvs health", "cybersource": "🔥 visa",
+    "caremark": "cvs health", "aetna resources": "cvs health", "cybersource": "visa",
     "juniper networks": "hewlett packard enterprise",
 }
 # companies.csv rows a prefix or exact name match would wrongly pick (checked by hand)

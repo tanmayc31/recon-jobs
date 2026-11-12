@@ -26,3 +26,13 @@ def test_real_companies_config():
     assert list(cos[0]) == ["company", "ats", "slug", "tier", "referral"]
     assert all(c["ats"] in SOURCES and c["tier"] in {"1", "2", "3"} for c in cos)
     assert len({c["company"] for c in cos}) == len(cos)
+
+
+def test_company_names_have_no_emoji_or_symbols():
+    # "🔥 Intel" -> "Intel". Letters with accents ("AtkinsRéalis") are fine.
+    # Left alone for now: cleaning these would collide with another row of the same name.
+    collisions = {"🔥 Duolingo", "🔥 Salesforce", "🔥 Intel", "🔥 DoorDash"}
+    cos = load_companies(COMPANIES, COMPANIES.parent / "no-referrals.csv")
+    odd = [c["company"] for c in cos if c["company"] not in collisions
+           and (c["company"] != c["company"].strip() or any(not ch.isalnum() and ord(ch) > 127 for ch in c["company"]))]
+    assert odd == []
