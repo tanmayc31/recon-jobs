@@ -1,5 +1,5 @@
 employer,swe_filings,ats,recon_company
-Amazon,13420,custom site,
+Amazon,13420,amazon,Amazon
 Cognizant,10317,custom site,
 Microsoft,7005,eightfold,
 Tata Consultancy Services,6749,custom site,
@@ -48,7 +48,7 @@ Bank of America,566,workday,Bank Of America
 Uber,561,greenhouse,Uber
 SKILLTUNE TECHNOLOGIES INC,559,unknown,
 "Hexaware Technologies, Inc.",555,oracle,
-KFORCE INC.,531,custom site,
+KFORCE INC.,531,unknown,
 ServiceNow,525,smartrecruiters,
 "Comcast Cable Communications, LLC",516,workday,Comcast
 "Charles Schwab & Company, Inc.",514,icims,
@@ -256,7 +256,7 @@ Total System Services LLC,100,unknown,
 "Fujitsu North America, Inc.",98,unknown,
 "Yash Technologies, Inc",98,successfactors,
 Federal Home Loan Mortgage Corporation,97,unknown,
-Wayfair LLC,96,custom site,
+Wayfair LLC,96,unknown,
 "Centene Management Company, LLC",96,workday,Centene
 "ExlService.com, LLC",95,unknown,
 "Thermo Fisher Scientific, Inc.",93,unknown,
@@ -413,7 +413,7 @@ ARDOR IT SOLUTIONS INC,62,unknown,
 "Amdocs, Inc.",62,custom site,
 INFO KEYS INC,62,custom site,
 "T. Rowe Price Associates, Inc.",61,workday,T Rowe Price
-"Akkodis, Inc.",61,custom site,
+"Akkodis, Inc.",61,unknown,
 COMTEC CONSULTANTS INC,61,unknown,
 TransUnion LLC,61,workday,Transunion
 eTek IT Services Inc,61,custom site,

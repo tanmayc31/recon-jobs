@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { logout, setStatus } from "./actions";
+import { FilterPanel } from "./filters";
 import { StatusButton } from "./status-button";
 import { ago, posted, updated } from "@/lib/dates";
-import { TABS, type JobRow, type Status, type Tab, listJobs, tabCounts } from "@/lib/db";
+import { TABS, type JobRow, type Status, type Tab, listCompanies, listJobs, tabCounts } from "@/lib/db";
+import { MAX_LIMIT, PAGE_SIZE, ROLES, type Role, activeCount, parseFilters, parseLimit, toQuery } from "@/lib/filters";
 
 const LABELS: Record<Tab, string> = {
   new: "New",
@@ -19,9 +21,19 @@ const MOVES: [Status, string][] = [
 ];
 
 export default async function Home({ searchParams }: PageProps<"/">) {
-  const requested = (await searchParams).tab;
-  const tab: Tab = TABS.includes(requested as Tab) ? (requested as Tab) : "new";
-  const [jobs, counts] = await Promise.all([listJobs(tab), tabCounts()]);
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(await searchParams)) {
+    for (const value of Array.isArray(v) ? v : v === undefined ? [] : [v]) params.append(k, value);
+  }
+  const tab: Tab = TABS.includes(params.get("tab") as Tab) ? (params.get("tab") as Tab) : "new";
+  const filters = parseFilters(params, tab);
+  const limit = parseLimit(params.get("limit")); // not a filter: changing a filter starts over at one page
+  const [{ jobs, matching }, counts, companies] = await Promise.all([
+    listJobs(tab, filters, limit),
+    tabCounts(),
+    listCompanies(),
+  ]);
+  const active = activeCount(filters);
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 pb-16">
@@ -33,28 +45,57 @@ export default async function Home({ searchParams }: PageProps<"/">) {
           </form>
         </div>
         <nav className="-mx-4 mt-3 flex gap-1 overflow-x-auto px-4">
-          {TABS.map((t) => (
-            <Link
-              key={t}
-              href={t === "new" ? "/" : `/?tab=${t}`}
-              className={`shrink-0 border-b-2 px-3 pb-2.5 text-sm font-medium ${
-                t === tab
-                  ? "border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-                  : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-              }`}
-            >
-              {LABELS[t]} <span className="text-zinc-400">{counts[t]}</span>
-            </Link>
-          ))}
+          {TABS.map((t) => {
+            const query = toQuery(filters, t); // filters carry over between tabs
+            return (
+              <Link
+                key={t}
+                href={query ? `/?${query}` : "/"}
+                className={`shrink-0 border-b-2 px-3 pb-2.5 text-sm font-medium ${
+                  t === tab
+                    ? "border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+                    : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                }`}
+              >
+                {LABELS[t]} <span className="text-zinc-400">{counts[t]}</span>
+              </Link>
+            );
+          })}
         </nav>
       </header>
 
-      <ul className="mt-4 space-y-3">
+      <FilterPanel key={toQuery(filters, tab)} tab={tab} filters={filters} companies={companies} active={active} />
+
+      <div className="mt-3 flex items-center justify-between gap-3 text-sm text-zinc-500">
+        <p>
+          Showing <span className="font-medium text-zinc-800 dark:text-zinc-200">{matching.toLocaleString()}</span> of{" "}
+          {counts[tab].toLocaleString()}
+          {matching > limit && ` (first ${limit.toLocaleString()} listed)`}
+        </p>
+        {active > 0 && (
+          <Link href={tab === "new" ? "/" : `/?tab=${tab}`} className="font-medium text-zinc-800 underline dark:text-zinc-200">
+            Reset filters
+          </Link>
+        )}
+      </div>
+
+      <ul className="mt-3 space-y-3">
         {jobs.map((job) => (
           <JobCard key={job.job_id} job={job} tab={tab} />
         ))}
       </ul>
-      {jobs.length === 0 && <p className="mt-16 text-center text-zinc-500">Nothing here.</p>}
+      {matching > limit && limit < MAX_LIMIT && (
+        <Link
+          href={`/?${[toQuery(filters, tab), `limit=${limit + PAGE_SIZE}`].filter(Boolean).join("&")}`}
+          scroll={false}
+          className="mt-4 block rounded-xl border border-zinc-300 py-3 text-center text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+        >
+          Load more ({Math.min(PAGE_SIZE, matching - limit).toLocaleString()} of {(matching - limit).toLocaleString()} remaining)
+        </Link>
+      )}
+      {jobs.length === 0 && (
+        <p className="mt-16 text-center text-zinc-500">{active ? "No jobs match these filters." : "Nothing here."}</p>
+      )}
     </div>
   );
 }
@@ -97,6 +138,19 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
         {job.posted_at && <span className="text-zinc-500">{posted(job.posted_at)} ·</span>}
         {edited && <span className="text-zinc-500">{edited} ·</span>}
         <span className="text-zinc-500">found {ago(job.first_seen_at)}</span>
+        {job.role_type && job.role_type !== "other" && (
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            {ROLES[job.role_type as Role] ?? job.role_type}
+          </span>
+        )}
+        {job.filings != null && (
+          <span
+            title="Certified H-1B software filings, FY2025 (DOL LCA data)"
+            className="rounded-full bg-teal-100 px-2 py-0.5 font-medium text-teal-800 dark:bg-teal-900/50 dark:text-teal-300"
+          >
+            H-1B: {job.filings.toLocaleString()} SWE filings
+          </span>
+        )}
         {job.openings != null && job.openings > 1 && (
           <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300">
             {job.openings} openings

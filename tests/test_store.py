@@ -3,7 +3,7 @@ import sys
 import types
 
 from recon.models import Job
-from recon.store import Store
+from recon.store import Store, posted_on
 
 JOB = Job("greenhouse:co:1", "Co", "SWE", "NYC", "u", None, "greenhouse", 1)
 
@@ -114,3 +114,43 @@ def test_openings_saved_and_refreshed(tmp_path):
     other = Job("greenhouse:co:9", "Co", "SWE", "NYC", "u", None, "greenhouse", 1)
     s.upsert(other, "match", None, None)
     assert s.execute("SELECT openings, source_ids FROM jobs WHERE job_id=?", (other.job_id,)).fetchone() == (1, None)
+
+
+def test_posted_on_resolves_dates_and_workday_text():
+    seen = "2026-11-10T12:00:00+00:00"
+    assert posted_on("2026-11-02T18:04:11-05:00", seen) == "2026-11-02"          # Greenhouse / Lever
+    assert posted_on("2026-11-10", seen) == "2026-11-10"                         # Amazon
+    assert posted_on("Posted Today", seen) == "2026-11-10"
+    assert posted_on("Posted Yesterday", seen) == "2026-11-09"
+    assert posted_on("Posted 3 Days Ago", seen) == "2026-11-07"
+    assert posted_on("Posted 30+ Days Ago", seen) == "2026-10-11"
+    assert posted_on(None, seen) is None and posted_on("Recently", seen) is None
+
+
+def test_posted_on_keeps_the_earliest_date(tmp_path):
+    # "Posted 30+ Days Ago" read again tomorrow must not move the date forward
+    s = Store(tmp_path / "t.db")
+    j = Job("workday:co:R1", "Co", "Software Engineer", "NYC", "u", "Posted 30+ Days Ago", "workday", 1)
+    s.upsert(j, "match", None, None)
+    first = s.execute("SELECT posted_on FROM jobs").fetchone()[0]
+    s.execute("UPDATE jobs SET posted_on='2026-01-01'")      # as if first seen long ago
+    s.touch_many([j])
+    assert first and s.execute("SELECT posted_on FROM jobs").fetchone()[0] == "2026-01-01"
+
+
+def test_new_rows_get_role_type_and_titles_are_trimmed(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.upsert(Job("amazon:x", "Amazon", " Software Development Engineer, AWS OpenSearch", "US, TX, Austin", "u",
+                 "2026-11-10", "amazon", 1), "match", None, None)
+    assert s.execute("SELECT title, role_type, posted_on FROM jobs").fetchone() == \
+        ("Software Development Engineer, AWS OpenSearch", "swe", "2026-11-10")
+
+
+def test_backfill_fills_old_rows(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.upsert(Job("workday:co:R2", "Co", "Site Reliability Engineer 2", "NYC", "u", "Posted 3 Days Ago",
+                 "workday", 1), "match", None, None)
+    s.execute("UPDATE jobs SET role_type=NULL, posted_on=NULL, last_seen_at='2026-11-10T08:00:00+00:00'")
+    s.commit()
+    s2 = Store(tmp_path / "t.db")                                # opening the store backfills
+    assert s2.execute("SELECT role_type, posted_on FROM jobs").fetchone() == ("cloud", "2026-11-07")

@@ -2,11 +2,13 @@
 
 SQLite locally by default; Postgres (e.g. Supabase) when given a DATABASE_URL.
 """
+import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from recon.models import Job
+from recon.roles import role_type
 
 DB = Path(__file__).parent.parent / "data" / "recon.db"
 DESC_CHARS = 8000   # stored description length (matches only)
@@ -35,6 +37,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     description   TEXT,   -- matches only (trimmed), for the AI judge
     openings      INTEGER DEFAULT 1,  -- Amazon: identical title + location postings in this job
     source_ids    TEXT,   -- Amazon: the site's job IDs behind it, comma-separated
+    role_type     TEXT,   -- from the title (recon/roles.py): swe, backend, cloud, ...
+    posted_on     TEXT,   -- posted_at as an ISO date (Workday's "Posted 3 Days Ago" resolved)
     -- AI judge (recon/judge.py); ai_scored_at is NULL until judged
     fit_score     INTEGER,
     ai_why        TEXT,
@@ -48,6 +52,12 @@ CREATE TABLE IF NOT EXISTS jobs (
     ai_scored_at  TEXT
 );
 """, """
+CREATE TABLE IF NOT EXISTS sponsors (
+    company       TEXT PRIMARY KEY,   -- companies.csv name (config/sponsors.csv recon_company)
+    filings       INTEGER,            -- certified H-1B software LCA filings, summed over its employers
+    employers     TEXT                -- the DOL employer names behind it
+);
+""", """
 CREATE TABLE IF NOT EXISTS companies (
     company       TEXT PRIMARY KEY,   -- fetched successfully at least once
     first_run_at  TEXT                -- jobs found in this first run are backlog, not new
@@ -57,6 +67,27 @@ CREATE TABLE IF NOT EXISTS companies (
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+WORKDAY_AGO = re.compile(r"posted\s+(today|yesterday|(\d+)\+?\s+days?\s+ago)", re.I)
+
+
+def posted_on(posted_at: str | None, seen_at: str) -> str | None:
+    """'2026-11-10T..' -> '2026-11-10'; Workday 'Posted 3 Days Ago' seen on Nov 10 -> '2026-11-07'.
+    'Posted 30+ Days Ago' becomes 30 days back: an upper bound, kept from the first sighting."""
+    if not posted_at:
+        return None
+    if re.match(r"\d{4}-\d{2}-\d{2}", posted_at):
+        return posted_at[:10]
+    m = WORKDAY_AGO.search(posted_at)
+    if not m:
+        return None
+    days = 0 if m[1].lower() == "today" else 1 if m[1].lower() == "yesterday" else int(m[2])
+    return (datetime.fromisoformat(seen_at).date() - timedelta(days=days)).isoformat()
+
+
+# keep the earliest date: "30+ Days Ago" would otherwise creep forward every run
+EARLIEST = "posted_on=CASE WHEN posted_on IS NULL OR ? < posted_on THEN ? ELSE posted_on END"
 
 
 class Store:
@@ -74,8 +105,9 @@ class Store:
             self.db.execute(statement)
         self.db.commit()
         for name, kind in [("site_updated_at", "TEXT"), ("openings", "INTEGER DEFAULT 1"),
-                           ("source_ids", "TEXT")] + AI_COLUMNS:   # tables made before these existed
-            self.add_column(name, kind)
+                           ("source_ids", "TEXT"), ("role_type", "TEXT"), ("posted_on", "TEXT")] + AI_COLUMNS:
+            self.add_column(name, kind)   # tables made before these existed
+        self.backfill()
 
     def add_column(self, name: str, kind: str):
         try:
@@ -84,6 +116,21 @@ class Store:
             self.db.rollback()   # Postgres aborts the transaction on error
             self.db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
             self.db.commit()
+
+    def backfill(self):
+        """Rows saved before role_type / posted_on existed: fill them in once.
+        posted_on is resolved against last_seen_at, when the site's text was read."""
+        rows = self.execute("SELECT job_id, title, posted_at, last_seen_at FROM jobs WHERE role_type IS NULL").fetchall()
+        if rows:
+            self.executemany(
+                "UPDATE jobs SET role_type=?, posted_on=COALESCE(posted_on, ?) WHERE job_id=?",
+                [(role_type(t), posted_on(p, seen or now()), jid) for jid, t, p, seen in rows])
+            self.db.commit()
+
+    def replace_sponsors(self, rows: list[tuple[str, int, str]]):
+        """(company, filings, employers): the whole table, from config/sponsors.csv."""
+        self.execute("DELETE FROM sponsors")
+        self.executemany("INSERT INTO sponsors (company, filings, employers) VALUES (?, ?, ?)", rows)
 
     def execute(self, sql: str, params: tuple = ()):
         """Run SQL written with ? placeholders on either backend."""
@@ -122,9 +169,10 @@ class Store:
         t = now()
         self.executemany(
             "UPDATE jobs SET last_seen_at=?, posted_at=COALESCE(?, posted_at),"
-            " site_updated_at=COALESCE(?, site_updated_at), openings=?, source_ids=COALESCE(?, source_ids)"
-            " WHERE job_id=?",
-            [(t, j.posted_at, j.updated_at, j.openings, j.source_ids, j.job_id) for j in jobs])
+            " site_updated_at=COALESCE(?, site_updated_at), openings=?, source_ids=COALESCE(?, source_ids),"
+            f" {EARLIEST} WHERE job_id=?",
+            [(t, j.posted_at, j.updated_at, j.openings, j.source_ids, *[posted_on(j.posted_at, t)] * 2, j.job_id)
+             for j in jobs])
 
     def upsert_many(self, rows: list[tuple[Job, str, str | None, int | None, str]]) -> set[str]:
         """Save (job, decision, reason, min_years, status) rows in two batches.
@@ -148,18 +196,20 @@ class Store:
                 continue
             if d == "match" and vetoed[j.job_id]:
                 d, r = "skip", vetoed[j.job_id]
-            updates.append((t, d, r, y, j.posted_at, j.updated_at, desc(j, d), j.openings, j.source_ids, j.job_id))
+            updates.append((t, d, r, y, j.posted_at, j.updated_at, desc(j, d), j.openings, j.source_ids,
+                            role_type(j.title), *[posted_on(j.posted_at, t)] * 2, j.job_id))
         self.executemany(
             "UPDATE jobs SET last_seen_at=?, decision=?, reason=?, min_years=?,"
             " posted_at=COALESCE(?, posted_at), site_updated_at=COALESCE(?, site_updated_at),"
-            " description=COALESCE(?, description), openings=?, source_ids=COALESCE(?, source_ids)"
-            " WHERE job_id=?", updates)
+            " description=COALESCE(?, description), openings=?, source_ids=COALESCE(?, source_ids),"
+            f" role_type=?, {EARLIEST} WHERE job_id=?", updates)
         self.executemany(
             "INSERT INTO jobs (job_id, company, title, location, url, source, tier, posted_at, first_seen_at,"
-            " last_seen_at, decision, reason, min_years, site_updated_at, status, description, openings, source_ids)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " last_seen_at, decision, reason, min_years, site_updated_at, status, description, openings, source_ids,"
+            " role_type, posted_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(j.job_id, j.company, j.title, j.location, j.url, j.source, j.tier,
-              j.posted_at, t, t, d, r, y, j.updated_at, s, desc(j, d), j.openings, j.source_ids)
+              j.posted_at, t, t, d, r, y, j.updated_at, s, desc(j, d), j.openings, j.source_ids,
+              role_type(j.title), posted_on(j.posted_at, t))
              for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
         return set(ids) - set(vetoed)
 

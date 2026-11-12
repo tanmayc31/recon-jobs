@@ -15,3 +15,6 @@ class Job:
     updated_at: str | None = None  # site's last-edit time (Greenhouse only; others don't publish one)
     openings: int = 1      # Amazon: identical title + location postings collapsed into one job
     source_ids: str | None = None  # Amazon: every job ID behind this job, comma-separated
+
+    def __post_init__(self):
+        self.title = (self.title or "").strip()   # Amazon sends " Software Development Engineer, ..."

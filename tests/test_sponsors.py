@@ -1,4 +1,4 @@
-from recon.sponsors import NON_US, ats_of, board_slug, canon, match, rank, simplify_index
+from recon.sponsors import NON_US, ats_of, board_slug, canon, match, rank, simplify_index, sponsor_rows
 
 
 def lca(case, employer, soc="15-1252.00", title="Software Engineer", status="Certified", visa="H-1B"):
@@ -65,3 +65,13 @@ def test_simplify_rows_and_continuations():
 Apply</a></td><td>0d</td></tr>
 <tr><td>↳</td><td>SWE II</td><td>Boston, MA</td><td><a href="https://simplify.jobs/p/1">Apply</a></td><td>1d</td></tr>"""
     assert simplify_index([md]) == {"chewy": [("workday", "https://wd5.myworkdaysite.com/recruiting/chewy/External/job/1")]}
+
+
+def test_sponsor_rows_add_up_employers_per_company(tmp_path):
+    path = tmp_path / "sponsors.csv"
+    path.write_text("employer,swe_filings,ats,recon_company\n"
+                    "CVS Health,591,workday,CVS Health\nCaremark LLC,295,workday,CVS Health\n"
+                    "Aetna Resources LLC,226,workday,CVS Health\nFidelity,2069,workday,Fidelity Investments\n"
+                    "Cognizant,10317,custom site,\n")
+    assert sponsor_rows(path) == [("Fidelity Investments", 2069, "Fidelity"),
+                                  ("CVS Health", 1112, "CVS Health; Caremark LLC; Aetna Resources LLC")]

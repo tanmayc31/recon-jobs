@@ -4,6 +4,7 @@ Ranks employers by certified H-1B LCA filings for software roles (DOL OFLC discl
 public), matches them to companies.csv, and finds which ATS the missing ones use.
 
   python -m recon.sponsors data/LCA_Disclosure_Data_FY2025_Q*.xlsx   # writes config/sponsors.csv
+  python -m recon.sponsors --load     # copies config/sponsors.csv into the database (dashboard badge)
 
 Download the quarterly xlsx files in a browser (dol.gov blocks scripts) from
 https://www.dol.gov/agencies/eta/foreign-labor/performance into data/ (gitignored).
@@ -13,6 +14,7 @@ import argparse
 import asyncio
 import csv
 import difflib
+import os
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -21,7 +23,9 @@ import httpx
 
 from recon.detect import CHECKS
 from recon.discover import JOBSEEK, READMES, parse_board
+from recon.env import load_env
 from recon.main import COMPANIES, HEADERS
+from recon.store import Store
 
 SPONSORS = Path(__file__).parent.parent / "config" / "sponsors.csv"
 TOP = 500             # matches and ATS lookups checked by hand down to this rank
@@ -444,6 +448,27 @@ def write(ranked: list[dict], companies: list[dict], path: Path = SPONSORS):
             w.writerow([e["employer"], e["filings"], ats, e["covered"] or ""])
 
 
+def sponsor_rows(path: Path = SPONSORS) -> list[tuple[str, int, str]]:
+    """(companies.csv name, filings, employers) for the sponsors table. Several DOL employers can
+    map to one company (CVS Health also files as Aetna and Caremark): their filings add up."""
+    filings, employers = Counter(), defaultdict(list)
+    with open(path) as f:
+        for r in csv.DictReader(f):
+            if r["recon_company"]:
+                filings[r["recon_company"]] += int(r["swe_filings"])
+                employers[r["recon_company"]].append(r["employer"])
+    return [(c, n, "; ".join(employers[c])) for c, n in filings.most_common()]
+
+
+def load(path: Path = SPONSORS):
+    rows = sponsor_rows(path)
+    store = Store(url=os.environ.get("DATABASE_URL"))
+    store.replace_sponsors(rows)
+    store.commit()
+    store.close()
+    print(f"loaded {len(rows)} sponsors into the database")
+
+
 def report(ranked: list[dict], top: int = TOP):
     for n in (100, 250, 500):
         print(f"top {n}: {sum(1 for e in ranked[:n] if e['covered'])} covered")
@@ -474,13 +499,22 @@ def main(paths: list[str], top: int = TOP):
     match(ranked, companies, top)
     asyncio.run(find_ats([e for e in ranked[:top] if not e["covered"]]))
     write(ranked, companies)
-    print(f"wrote {SPONSORS}: {len(ranked)} employers, {sum(1 for e in ranked if e['covered'])} in companies.csv\n")
+    print(f"wrote {SPONSORS}: {len(ranked)} employers, {sum(1 for e in ranked if e['covered'])} in companies.csv")
+    load()
+    print()
     report(ranked, top)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("lca", nargs="+", help="DOL LCA disclosure xlsx files (one fiscal year: Q1-Q4)")
+    parser.add_argument("lca", nargs="*", help="DOL LCA disclosure xlsx files (one fiscal year: Q1-Q4)")
     parser.add_argument("--top", type=int, default=TOP, help=f"sponsors to check by hand (default {TOP})")
+    parser.add_argument("--load", action="store_true", help="only copy config/sponsors.csv into the database")
     args = parser.parse_args()
-    main(args.lca, args.top)
+    load_env()
+    if args.load:
+        load()
+    elif args.lca:
+        main(args.lca, args.top)
+    else:
+        parser.error("give the LCA xlsx files, or --load")
