@@ -138,6 +138,14 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
         {job.posted_at && <span className="text-zinc-500">{posted(job.posted_at)} ·</span>}
         {edited && <span className="text-zinc-500">{edited} ·</span>}
         <span className="text-zinc-500">found {ago(job.first_seen_at)}</span>
+        {job.closed_at && (
+          <span
+            title={`No longer on the company's board (closed ${ago(job.closed_at)})`}
+            className="rounded-full bg-zinc-800 px-2 py-0.5 font-semibold text-white dark:bg-zinc-200 dark:text-zinc-900"
+          >
+            closed
+          </span>
+        )}
         {job.role_type && job.role_type !== "other" && (
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
             {ROLES[job.role_type as Role] ?? job.role_type}

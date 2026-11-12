@@ -39,7 +39,7 @@ def mock(pages, calls):
 def run(pages, monkeypatch):
     monkeypatch.setattr(workday, "DELAY", 0)
     calls = []
-    jobs = asyncio.run(workday.fetch(mock(pages, calls), CO))
+    jobs = asyncio.run(workday.fetch(mock(pages, calls), dict(CO)))
     return jobs, calls
 
 
@@ -174,6 +174,15 @@ def test_big_board_facets_rtx_us_sites_in_chunks(monkeypatch):
                and c["jobFamilyGroup"] == ["Digital Technology", "Engineering"] for c in chunks)
 
 
+def test_big_board_facets_cisco_us_sites_end_in_us():
+    # real Cisco locations: the US ones end in ", US" (Seattle, Austin, Atlanta were dropped before)
+    [applied] = workday.big_board_facets([
+        facet("timeType", "Full time"), facet("workerSubType", "Regular"), facet("jobFamilyGroup", "Engineering"),
+        facet("locations", "Seattle, Washington, US", "Austin, Texas, US", "Remote - Indiana, USA",
+              "Bangalore, India", "Adelaide, Australia", "Toronto, Canada")])
+    assert names(applied)["locations"] == ["Seattle, Washington, US", "Austin, Texas, US", "Remote - Indiana, USA"]
+
+
 def big_board(totals, calls, fail_once=()):
     """Mock board: 4,633 postings unfiltered; filtered page 1 reports totals[i] for the i-th facet set."""
     failed = set()
@@ -198,8 +207,10 @@ def big_board(totals, calls, fail_once=()):
 def test_big_board_is_filtered_then_paged(monkeypatch):
     monkeypatch.setattr(workday, "DELAY", 0)
     calls = []
-    jobs = asyncio.run(workday.fetch(big_board([45], calls), CO))
+    co = dict(CO)
+    jobs = asyncio.run(workday.fetch(big_board([45], calls), co))
     assert calls[0] == (False, 0) and all(f for f, _ in calls[1:])   # every request after page 1 is filtered
+    assert co["partial"] is True        # filtered listing: never used to close jobs
     assert [o for _, o in calls[1:]] == [0, 20, 40, 60]                # 45 filtered postings: one by one
     assert len(jobs) == 3 and "Account Executive, Identity (West)" not in [j.title for j in jobs]
 
@@ -212,7 +223,7 @@ def test_still_big_after_filtering_pages_in_parallel_and_backs_off(monkeypatch):
         waits.append(seconds)
     monkeypatch.setattr(workday.asyncio, "sleep", no_wait)
     calls = []
-    jobs = asyncio.run(workday.fetch(big_board([1500], calls, fail_once={40}), CO))
+    jobs = asyncio.run(workday.fetch(big_board([1500], calls, fail_once={40}), dict(CO)))
     offsets = sorted(o for f, o in calls[1:])
     assert offsets.count(40) == 2 and set(offsets) == set(range(0, 1500, 20))   # every page, 40 retried
     assert 1 in waits                                                           # backed off after the 429
@@ -230,6 +241,23 @@ def test_small_boards_still_page_through_everything(monkeypatch):
         bodies.append((body["searchText"], body["offset"]))
         return httpx.Response(200, json={"total": 3, "jobPostings": SEARCH if body["offset"] == 0 else []})
 
-    jobs = asyncio.run(workday.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), CO))
+    jobs = asyncio.run(workday.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), dict(CO)))
     assert bodies == [("", 0), ("", 20)]          # page 1 reused, not fetched twice
     assert len(jobs) == 3
+
+
+def test_search_at_the_2000_cap_is_partial(monkeypatch):
+    # Workday stops at 2,000 results: jobs past it aren't closed, just unseen. No facets to
+    # narrow it (a board with none), so the cut-off listing must not close anything.
+    monkeypatch.setattr(workday, "DELAY", 0)
+
+    def handler(req):
+        offset = json.loads(req.content)["offset"] if req.method == "POST" else 0
+        return httpx.Response(200, json={"total": 2000, "jobPostings": [] if offset else SEARCH[:1]}) \
+            if req.method == "POST" else httpx.Response(200, json=DETAIL)
+    co = dict(CO)
+    asyncio.run(workday.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), co))
+    assert co.get("partial") is True
+    small = dict(CO)
+    asyncio.run(workday.fetch(mock([SEARCH], []), small))
+    assert "partial" not in small

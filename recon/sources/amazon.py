@@ -106,4 +106,6 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
         if not page or offset >= (data.get("hits") or 0):
             break
         await asyncio.sleep(DELAY)
+    else:
+        company["partial"] = True   # stopped at MAX_OFFSET: missing jobs may still be open
     return collapse(jobs)

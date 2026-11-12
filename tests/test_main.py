@@ -208,3 +208,45 @@ def test_existing_fresh_backlog_moves_to_new(tmp_path):
     s.commit()
     assert statuses(tmp_path) == {"greenhouse:co:1": "new", "greenhouse:co:2": "backlog",
                                   "greenhouse:co:3": "backlog", "greenhouse:co:4": "backlog"}
+
+
+def closed(tmp_path):
+    return dict(Store(tmp_path / "t.db").execute("SELECT job_id, closed_at IS NOT NULL FROM jobs").fetchall())
+
+
+def test_gone_two_runs_in_a_row_closes_and_reappearing_reopens(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("CI", raising=False)
+    run_once(tmp_path, monkeypatch, [job(1), job(2), job(3)])
+    s = Store(tmp_path / "t.db")
+    s.execute("UPDATE jobs SET status='applied' WHERE job_id='greenhouse:co:3'")
+    s.commit()
+    run_once(tmp_path, monkeypatch, [job(1)])                        # 2 and 3 missing once: still open
+    assert closed(tmp_path) == {"greenhouse:co:1": 0, "greenhouse:co:2": 0, "greenhouse:co:3": 0}
+    run_once(tmp_path, monkeypatch, [job(1)])                        # missing twice: closed
+    assert closed(tmp_path) == {"greenhouse:co:1": 0, "greenhouse:co:2": 1, "greenhouse:co:3": 1}
+    assert statuses(tmp_path)["greenhouse:co:3"] == "applied"        # Applied stays Applied (badge only)
+    assert "Closed (gone from the board 2 runs in a row): 2, reopened: 0" in capsys.readouterr().out
+    run_once(tmp_path, monkeypatch, [job(1), job(2)])                # 2 is back
+    assert closed(tmp_path)["greenhouse:co:2"] == 0
+
+
+def test_seen_again_resets_the_miss_count(tmp_path, monkeypatch):
+    for listing in ([job(1), job(2)], [job(1)], [job(1), job(2)], [job(1)]):   # gone, back, gone: never 2 in a row
+        run_once(tmp_path, monkeypatch, listing)
+    assert closed(tmp_path)["greenhouse:co:2"] == 0
+
+
+def test_partial_failed_or_empty_fetch_closes_nothing(tmp_path, monkeypatch):
+    run_once(tmp_path, monkeypatch, [job(1), job(2)])
+    for _ in range(2):
+        run_once(tmp_path, monkeypatch, None)                        # fetch failed
+        run_once(tmp_path, monkeypatch, [])                          # empty board: more often a glitch
+    monkeypatch.setattr(main, "load_companies", lambda: [
+        {"company": "Co", "ats": "greenhouse", "slug": "co", "tier": "1", "referral": "", "partial": True}])   # cut off (Workday cap)
+
+    async def fetch(client, sems, company, deadline, outcome):
+        return [job(1)]
+    monkeypatch.setattr(main, "fetch_company", fetch)
+    for _ in range(2):
+        asyncio.run(main.run())
+    assert closed(tmp_path) == {"greenhouse:co:1": 0, "greenhouse:co:2": 0}

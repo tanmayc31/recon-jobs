@@ -13,7 +13,7 @@ from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
 from recon.sources import amazon, ashby, greenhouse, lever, workday
-from recon.store import Store, fresh, now
+from recon.store import MISSES_TO_CLOSE, Store, fresh, now
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
@@ -128,6 +128,10 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
             new_matches.append((j, flags, yrs))
     # dates only, never the verdict: an overlapping --recheck run may have just updated it
     store.touch_many(still_listed)
+    # only complete listings: a failed or cut-off fetch (company["partial"]) or an empty board
+    # (more often a glitch than a hiring freeze) says nothing about which jobs closed
+    closed, reopened = store.track_listings({c["company"]: {j.job_id for j in jobs}
+                                             for c, jobs in zip(companies, results) if jobs and not c.get("partial")})
     store.mark_seen([c["company"] for c, jobs in zip(companies, results) if jobs is not None])
     store.commit()
     store.close()
@@ -142,6 +146,8 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
 
     if unverified:
         print(f"Unverified (no description, retried next run): {unverified}")
+    if closed or reopened:
+        print(f"Closed (gone from the board {MISSES_TO_CLOSE} runs in a row): {closed}, reopened: {reopened}")
     if backlog:
         print(f"\n📦 {backlog} backlog matches saved from first-time companies (not shown as new)")
     print(f"\n🆕 {len(new_matches)} new matches since last run\n")

@@ -13,6 +13,7 @@ from recon.roles import role_type
 DB = Path(__file__).parent.parent / "data" / "recon.db"
 DESC_CHARS = 8000   # stored description length (matches only)
 FRESH_DAYS = 3      # a first-run job posted this recently is news, not backlog
+MISSES_TO_CLOSE = 2  # complete fetches in a row without the job before it counts as closed
 AI_COLUMNS = [("description", "TEXT"), ("fit_score", "INTEGER"), ("ai_why", "TEXT"),
               ("ai_missing", "TEXT"), ("ai_resume", "TEXT"), ("ai_seniority", "TEXT"),
               ("ai_sponsorship", "TEXT"), ("ai_years", "INTEGER"), ("ai_max_years", "INTEGER"), ("ai_skip", "TEXT"),
@@ -41,6 +42,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     role_type     TEXT,   -- from the title (recon/roles.py): swe, backend, cloud, ...
     posted_on     TEXT,   -- posted_at as an ISO date (Workday's "Posted 3 Days Ago" resolved)
     my_rating     INTEGER, -- your 👍 (1) / 👎 (-1) from the dashboard; null if unrated
+    missed_runs   INTEGER DEFAULT 0, -- complete fetches of its company in a row without it
+    closed_at     TEXT,   -- set after MISSES_TO_CLOSE misses; cleared if it reappears. status is
+                          -- kept: hidden from New/Backlog/Later, a badge in Applied
     rated_at      TEXT,
     -- AI judge (recon/judge.py); ai_scored_at is NULL until judged
     fit_score     INTEGER, -- overall: weighted sum of the three rubric parts below
@@ -119,7 +123,8 @@ class Store:
         self.db.commit()
         for name, kind in [("site_updated_at", "TEXT"), ("openings", "INTEGER DEFAULT 1"),
                            ("source_ids", "TEXT"), ("role_type", "TEXT"), ("posted_on", "TEXT"),
-                           ("my_rating", "INTEGER"), ("rated_at", "TEXT")] + AI_COLUMNS:
+                           ("my_rating", "INTEGER"), ("rated_at", "TEXT"),
+                           ("missed_runs", "INTEGER DEFAULT 0"), ("closed_at", "TEXT")] + AI_COLUMNS:
             self.add_column(name, kind)   # tables made before these existed
         self.backfill()
 
@@ -227,6 +232,33 @@ class Store:
              for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
         return set(ids) - set(vetoed)
 
+    def track_listings(self, listed: dict[str, set[str]]) -> tuple[int, int]:
+        """listed: company -> every job_id on its board, from a complete fetch. Jobs missing
+        MISSES_TO_CLOSE times in a row are closed; a closed job that's listed again reopens.
+        Returns (closed, reopened)."""
+        t, names, updates, closed, reopened = now(), list(listed), [], 0, 0
+        for i in range(0, len(names), 500):
+            chunk = names[i:i + 500]
+            for job_id, company, missed, closed_at in self.execute(
+                    "SELECT job_id, company, COALESCE(missed_runs, 0), closed_at FROM jobs"
+                    f" WHERE company IN ({','.join('?' * len(chunk))})", tuple(chunk)).fetchall():
+                if job_id in listed[company]:
+                    if missed or closed_at:
+                        updates.append((0, None, job_id))
+                        reopened += bool(closed_at)
+                elif not closed_at:
+                    missed += 1
+                    shut = missed >= MISSES_TO_CLOSE
+                    updates.append((missed, t if shut else None, job_id))
+                    closed += shut
+        self.executemany("UPDATE jobs SET missed_runs=?, closed_at=? WHERE job_id=?", updates)
+        return closed, reopened
+
+    def close_jobs(self, job_ids: list[str]):
+        """Close jobs confirmed gone some other way (the link check)."""
+        self.executemany("UPDATE jobs SET missed_runs=?, closed_at=? WHERE job_id=? AND closed_at IS NULL",
+                         [(MISSES_TO_CLOSE, now(), i) for i in job_ids])
+
     def undescribed(self) -> dict[str, str]:
         """job_id -> company for matches saved without a description (recon/backfill.py)."""
         return dict(self.execute("SELECT job_id, company FROM jobs WHERE decision = 'match'"
@@ -246,7 +278,7 @@ class Store:
         Backlog by tier (Tier 1 first), then anything else; newest first within each."""
         cols = ["job_id", "company", "title", "location", "description"]
         return [dict(zip(cols, r)) for r in self.execute(
-            f"SELECT {', '.join(cols)} FROM jobs WHERE decision = 'match' AND ai_scored_at IS NULL"
+            f"SELECT {', '.join(cols)} FROM jobs WHERE decision = 'match' AND ai_scored_at IS NULL AND closed_at IS NULL"
             " AND description IS NOT NULL AND description <> ''"
             " ORDER BY CASE status WHEN 'new' THEN 0 WHEN 'backlog' THEN 1 ELSE 2 END,"
             " CASE WHEN status = 'backlog' THEN tier ELSE 0 END, first_seen_at DESC, job_id"

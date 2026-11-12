@@ -15,6 +15,7 @@ BASE = "https://{tenant}.{wd}.myworkdayjobs.com"
 PAGE = 20          # Workday's max page size
 DELAY = 0.2        # seconds between requests, be polite
 MAX_OFFSET = 5000  # safety stop; "total" is 0 after page 1, so we don't trust it
+CAP = 2000         # Workday returns at most this many results per search
 # Tier 3 (hundreds of discovered tenants) and big boards: search instead of paging through every
 # posting. The title filter needs "engineer"/"developer" (or SWE/SDE/SRE) anyway.
 SEARCHES = ["engineer", "developer"]
@@ -26,7 +27,8 @@ PARALLEL_PAGES = 3
 RETRIES = 3        # 429s: wait 1s, 2s, 4s, then give up on the company this run
 MAX_FACET_VALUES = 100   # RTX's 386 US sites in one request -> HTTP 500; 100 at a time works
 US_COUNTRY = re.compile(r"^(united states( of america)?|usa|us)$", re.I)
-US_SITE = re.compile(r"^US[-\s,]|\bUnited States\b|\bUSA\b")   # RTX: "US-IA-CEDAR RAPIDS-112 ~ ..."
+# RTX: "US-IA-CEDAR RAPIDS-112 ~ ..."; Cisco: "Seattle, Washington, US" (92 of its US sites end that way)
+US_SITE = re.compile(r"^US[-\s,]|[,\s]US$|\bUnited States\b|\bUSA\b")
 NOT_REGULAR = re.compile(r"intern|co-?op|contract|temp|apprentice|fixed term|trainee|academic|part[- ]time", re.I)
 FULL_TIME = re.compile(r"full", re.I)
 SOFTWARE_FAMILY = re.compile(r"engineer|software|technolog|\bIT\b|digital|univ|graduate|campus|early career",
@@ -64,6 +66,9 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             if filters != [{}]:
                 firsts = [await search_page(client, api, search, 0, f) for f in filters]
         parallel = sum(f.get("total") or 0 for f in firsts) > BIG_BOARD   # still big after filtering
+        if filters != [{}] or any((f.get("total") or 0) >= CAP for f in firsts):
+            # filtered or cut off: a job we don't see may still be open, so this listing closes nothing
+            company["partial"] = True
         for facets, page1 in zip(filters, firsts):
             await page_through(client, api, search, postings, seen, page1, facets, parallel)
 

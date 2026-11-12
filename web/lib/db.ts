@@ -49,6 +49,7 @@ export type JobRow = {
   role_type: string | null;
   filings: number | null; // H-1B software filings (sponsors table), null if not a known sponsor
   my_rating: Rating | null; // your 👍 / 👎
+  closed_at: string | null; // gone from the company's board
 };
 
 export const RATINGS = [1, -1] as const; // 👍, 👎
@@ -57,10 +58,12 @@ export type Rating = (typeof RATINGS)[number];
 
 function tabWhere(sql: postgres.Sql, tab: Tab) {
   return {
-    new: sql`j.decision = 'match' AND j.status = 'new'`,
+    // closed jobs (gone from the board, recon/store.py track_listings) leave New, Backlog and
+    // Later; Applied keeps them with a "closed" badge
+    new: sql`j.decision = 'match' AND j.status = 'new' AND j.closed_at IS NULL`,
     // saved in a company's first run: already open when Recon started watching
-    backlog: sql`j.decision = 'match' AND j.status = 'backlog'`,
-    later: sql`j.status = 'later'`,
+    backlog: sql`j.decision = 'match' AND j.status = 'backlog' AND j.closed_at IS NULL`,
+    later: sql`j.status = 'later' AND j.closed_at IS NULL`,
     applied: sql`j.status = 'applied'`,
     // you skipped it, or Recon auto-skipped it (eligibility/years) and you haven't moved it
     skipped: sql`(j.status = 'skipped' OR (j.decision = 'skip' AND j.status IN ('new', 'backlog')))`,
@@ -119,7 +122,7 @@ export async function listJobs(tab: Tab, f: Filters, limit: number): Promise<{ j
       SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.site_updated_at,
              j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_skills,
              j.ai_level, j.ai_domain, j.ai_why, j.ai_missing, j.ai_resume, j.ai_max_years, j.openings,
-             j.role_type, j.my_rating, sp.filings
+             j.role_type, j.my_rating, j.closed_at, sp.filings
       FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
       WHERE ${where}
       ORDER BY ${orderBy(sql, f)}
@@ -140,9 +143,9 @@ export async function listCompanies(): Promise<string[]> {
 export async function tabCounts(): Promise<Record<Tab, number>> {
   const [row] = await db()`
     SELECT
-      COUNT(*) FILTER (WHERE decision = 'match' AND status = 'new')::int AS new,
-      COUNT(*) FILTER (WHERE decision = 'match' AND status = 'backlog')::int AS backlog,
-      COUNT(*) FILTER (WHERE status = 'later')::int AS later,
+      COUNT(*) FILTER (WHERE decision = 'match' AND status = 'new' AND closed_at IS NULL)::int AS new,
+      COUNT(*) FILTER (WHERE decision = 'match' AND status = 'backlog' AND closed_at IS NULL)::int AS backlog,
+      COUNT(*) FILTER (WHERE status = 'later' AND closed_at IS NULL)::int AS later,
       COUNT(*) FILTER (WHERE status = 'applied')::int AS applied,
       COUNT(*) FILTER (WHERE status = 'skipped' OR (decision = 'skip' AND status IN ('new', 'backlog')))::int AS skipped
     FROM jobs`;

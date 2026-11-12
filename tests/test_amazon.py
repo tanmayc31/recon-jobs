@@ -112,3 +112,15 @@ def test_blocked_or_challenged_stops(monkeypatch, response):
     with pytest.raises(amazon.Blocked):
         run(httpx.AsyncClient(transport=httpx.MockTransport(handler)), monkeypatch)
     assert len(calls) == 1                                    # no retry, no workaround
+
+
+def test_stopping_at_max_offset_is_partial(monkeypatch):
+    monkeypatch.setattr(amazon, "PAGE", 1)
+    monkeypatch.setattr(amazon, "MAX_OFFSET", 2)
+    co = dict(CO)
+    monkeypatch.setattr(amazon, "DELAY", 0)
+    asyncio.run(amazon.fetch(board([[job("1")], [job("2")], [job("3")]], 3, []), co))
+    assert co.get("partial") is True                          # job 3 unseen, not gone
+    co = dict(CO)
+    asyncio.run(amazon.fetch(board([[job("1")]], 1, []), co))
+    assert "partial" not in co
