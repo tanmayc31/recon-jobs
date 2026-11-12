@@ -176,3 +176,35 @@ def test_connection_not_held_during_fetch(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "Store", lambda url=None: Tracked(tmp_path / "t.db", url))
     asyncio.run(main.run())
     assert len(opened) == 2 and all(s.closed for s in opened)
+
+
+def test_first_run_jobs_posted_in_the_last_3_days_are_new(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    today = date.today()
+    fresh, old, workday, undated = job(1), job(2), job(3), job(4)
+    fresh.posted_at = (today - timedelta(days=3)).isoformat() + "T15:04:11Z"   # Lever/Ashby ISO date
+    old.posted_at = (today - timedelta(days=4)).isoformat()
+    workday.posted_at = "Posted 2 Days Ago"                                    # real Workday text
+    # job 4: no posted date from the site -> stays backlog
+    run_once(tmp_path, monkeypatch, [fresh, old, workday, undated])            # company's first run
+    assert statuses(tmp_path) == {"greenhouse:co:1": "new", "greenhouse:co:2": "backlog",
+                                  "greenhouse:co:3": "new", "greenhouse:co:4": "backlog"}
+
+
+def test_existing_fresh_backlog_moves_to_new(tmp_path):
+    s = Store(tmp_path / "t.db")
+    seen = "2026-11-10T08:00:00+00:00"
+    rows = [  # (n, posted_at from the site, posted_on as stored)
+        (1, "2026-11-07", "2026-11-07"),                 # 3 days before first seen: new
+        (2, "2026-11-06", "2026-11-06"),                 # 4 days: stays backlog
+        (3, "Posted 30+ Days Ago", "2026-10-11"),        # Workday bound: stays
+        (4, None, None)]                                 # no date: stays
+    for n, posted_at, posted_on in rows:
+        j = job(n)
+        j.posted_at = posted_at
+        s.upsert_many([(j, "match", None, None, "backlog")])
+        s.execute("UPDATE jobs SET first_seen_at=?, posted_on=? WHERE job_id=?", (seen, posted_on, j.job_id))
+    assert s.fresh_backlog_to_new() == ["greenhouse:co:1"]
+    s.commit()
+    assert statuses(tmp_path) == {"greenhouse:co:1": "new", "greenhouse:co:2": "backlog",
+                                  "greenhouse:co:3": "backlog", "greenhouse:co:4": "backlog"}

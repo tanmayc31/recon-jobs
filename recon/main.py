@@ -13,7 +13,7 @@ from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
 from recon.sources import amazon, ashby, greenhouse, lever, workday
-from recon.store import Store
+from recon.store import Store, fresh, now
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
@@ -101,8 +101,9 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
         keep, flags = classify(j)                 # stage 1: title + location
         if not keep:
             continue
-        # a company's first run is its existing backlog, not news
-        status = "new" if j.company in seen else "backlog"
+        # a company's first run is its existing backlog, not news, unless the site says it was
+        # posted in the last few days
+        status = "new" if j.company in seen or fresh(j.posted_at, now()) else "backlog"
         if not j.description.strip():
             # the description request failed: can't judge it, so not a match. Hidden from every
             # tab and retried next run (known_jobs skips unverified rows)

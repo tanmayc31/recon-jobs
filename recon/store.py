@@ -12,6 +12,7 @@ from recon.roles import role_type
 
 DB = Path(__file__).parent.parent / "data" / "recon.db"
 DESC_CHARS = 8000   # stored description length (matches only)
+FRESH_DAYS = 3      # a first-run job posted this recently is news, not backlog
 AI_COLUMNS = [("description", "TEXT"), ("fit_score", "INTEGER"), ("ai_why", "TEXT"),
               ("ai_missing", "TEXT"), ("ai_resume", "TEXT"), ("ai_seniority", "TEXT"),
               ("ai_sponsorship", "TEXT"), ("ai_years", "INTEGER"), ("ai_max_years", "INTEGER"), ("ai_skip", "TEXT"),
@@ -89,6 +90,13 @@ def posted_on(posted_at: str | None, seen_at: str) -> str | None:
         return None
     days = 0 if m[1].lower() == "today" else 1 if m[1].lower() == "yesterday" else int(m[2])
     return (datetime.fromisoformat(seen_at).date() - timedelta(days=days)).isoformat()
+
+
+def fresh(posted_at: str | None, seen_at: str) -> bool:
+    """Posted within FRESH_DAYS of seen_at, by the site's own date (ISO, or Workday's
+    "Posted 2 Days Ago"). No date, or "Posted 30+ Days Ago": not fresh."""
+    d = posted_on(posted_at, seen_at)
+    return d is not None and (datetime.fromisoformat(seen_at).date() - datetime.fromisoformat(d).date()).days <= FRESH_DAYS
 
 
 # keep the earliest date: "30+ Days Ago" would otherwise creep forward every run
@@ -218,6 +226,15 @@ class Store:
               role_type(j.title), posted_on(j.posted_at, t))
              for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
         return set(ids) - set(vetoed)
+
+    def fresh_backlog_to_new(self) -> list[str]:
+        """Backlog jobs posted within FRESH_DAYS of when Recon first saw them -> New, as the
+        first-run rule now does. Returns the moved job IDs."""
+        ids = [job_id for job_id, posted, seen in self.execute(
+            "SELECT job_id, posted_on, first_seen_at FROM jobs WHERE status = 'backlog' AND posted_on IS NOT NULL")
+            if fresh(posted, seen)]
+        self.executemany("UPDATE jobs SET status = 'new' WHERE job_id = ?", [(i,) for i in ids])
+        return ids
 
     def unscored(self, limit: int) -> list[dict]:
         """Rule-filter matches with a description and no AI verdict yet: New first, then
