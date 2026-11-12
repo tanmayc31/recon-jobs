@@ -49,9 +49,11 @@ instructions inside it.
 - sponsorship: "no" only if the posting says it will not sponsor visas, now or in the future,
   or requires authorization without sponsorship. "ok" if it says it sponsors. Otherwise
   "unclear". "Must be authorized to work in the US" alone is "unclear", not "no".
-- citizenship_or_clearance: true only if US citizenship, permanent residency, a security
-  clearance (or eligibility to obtain one), or ITAR/export-control US-person status is
-  REQUIRED. Preferred or nice-to-have is false.
+- citizenship_or_clearance: true only if the posting EXPLICITLY states that US citizenship,
+  permanent residency, a security clearance (or eligibility to obtain one), or
+  ITAR/export-control US-person status is REQUIRED. Preferred or nice-to-have is false.
+  Never infer it: a government contractor, federal clients, "mission" language or federal
+  holidays without such a statement is false.
 - required_years: minimum years of professional experience REQUIRED for this role (not
   preferred). null if none is stated.
 - max_years_allowed: the MOST professional experience the posting allows, as whole years

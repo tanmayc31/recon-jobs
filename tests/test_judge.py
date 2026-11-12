@@ -237,3 +237,10 @@ def test_my_rating_survives_a_recheck(tmp_path):
     s.execute("UPDATE jobs SET my_rating=-1, rated_at='2026-11-11T12:00:00+00:00'")
     s.upsert_many([(job(1), "match", None, None, "new")])
     assert s.execute("SELECT my_rating, rated_at FROM jobs").fetchone() == (-1, "2026-11-11T12:00:00+00:00")
+
+
+def test_citizenship_must_be_stated_not_inferred():
+    # real SteerBridge posting was vetoed for "federal acquisition" and "Paid Federal Holidays" alone
+    rule = " ".join(judge.INSTRUCTIONS.split())
+    assert "true only if the posting EXPLICITLY states" in rule
+    assert "Never infer it: a government contractor, federal clients" in rule and "federal holidays" in rule

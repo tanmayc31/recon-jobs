@@ -227,6 +227,11 @@ class Store:
              for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
         return set(ids) - set(vetoed)
 
+    def undescribed(self) -> dict[str, str]:
+        """job_id -> company for matches saved without a description (recon/backfill.py)."""
+        return dict(self.execute("SELECT job_id, company FROM jobs WHERE decision = 'match'"
+                                 " AND (description IS NULL OR description = '')").fetchall())
+
     def fresh_backlog_to_new(self) -> list[str]:
         """Backlog jobs posted within FRESH_DAYS of when Recon first saw them -> New, as the
         first-run rule now does. Returns the moved job IDs."""
