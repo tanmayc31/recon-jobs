@@ -38,6 +38,9 @@ export type JobRow = {
   min_years: number | null;
   status: Status;
   fit_score: number | null; // AI judge (recon/judge.py); null until judged
+  ai_skills: number | null; // rubric parts (0-100) behind fit_score; null if judged before the rubric
+  ai_level: number | null;
+  ai_domain: number | null;
   ai_why: string | null;
   ai_missing: string | null; // comma-separated
   ai_resume: "ai" | "general" | null;
@@ -45,7 +48,11 @@ export type JobRow = {
   openings: number | null; // Amazon: identical title + location postings collapsed into this job
   role_type: string | null;
   filings: number | null; // H-1B software filings (sponsors table), null if not a known sponsor
+  my_rating: Rating | null; // your 👍 / 👎
 };
+
+export const RATINGS = [1, -1] as const; // 👍, 👎
+export type Rating = (typeof RATINGS)[number];
 
 
 function tabWhere(sql: postgres.Sql, tab: Tab) {
@@ -110,8 +117,9 @@ export async function listJobs(tab: Tab, f: Filters, limit: number): Promise<{ j
   const [jobs, [count]] = await Promise.all([
     sql<JobRow[]>`
       SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.site_updated_at,
-             j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_why,
-             j.ai_missing, j.ai_resume, j.ai_max_years, j.openings, j.role_type, sp.filings
+             j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_skills,
+             j.ai_level, j.ai_domain, j.ai_why, j.ai_missing, j.ai_resume, j.ai_max_years, j.openings,
+             j.role_type, j.my_rating, sp.filings
       FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
       WHERE ${where}
       ORDER BY ${orderBy(sql, f)}
@@ -143,4 +151,10 @@ export async function tabCounts(): Promise<Record<Tab, number>> {
 
 export async function updateStatus(jobId: string, status: Status) {
   await db()`UPDATE jobs SET status = ${status} WHERE job_id = ${jobId}`;
+}
+
+/** null clears the rating. rated_at uses the poller's format (UTC ISO, seconds). */
+export async function updateRating(jobId: string, rating: Rating | null) {
+  const at = rating === null ? null : new Date().toISOString().slice(0, 19) + "+00:00";
+  await db()`UPDATE jobs SET my_rating = ${rating}, rated_at = ${at} WHERE job_id = ${jobId}`;
 }

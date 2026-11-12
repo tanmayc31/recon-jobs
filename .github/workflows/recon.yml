@@ -7,7 +7,8 @@ name: recon
 #   3-workday  Tier 3 Workday                       every 6 h
 # Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
 # filter rules reach old jobs.
-# AI judge: after each normal 1-2 run, scores up to 40 unjudged matches from any lane.
+# AI judge: after each normal 1-2 run, scores up to 48 unjudged matches from any lane,
+# 6 per Gemini request.
 on:
   schedule:
     - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US

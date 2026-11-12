@@ -15,7 +15,7 @@ DESC_CHARS = 8000   # stored description length (matches only)
 AI_COLUMNS = [("description", "TEXT"), ("fit_score", "INTEGER"), ("ai_why", "TEXT"),
               ("ai_missing", "TEXT"), ("ai_resume", "TEXT"), ("ai_seniority", "TEXT"),
               ("ai_sponsorship", "TEXT"), ("ai_years", "INTEGER"), ("ai_max_years", "INTEGER"), ("ai_skip", "TEXT"),
-              ("ai_scored_at", "TEXT")]
+              ("ai_scored_at", "TEXT"), ("ai_skills", "INTEGER"), ("ai_level", "INTEGER"), ("ai_domain", "INTEGER")]
 
 SCHEMA = ["""
 CREATE TABLE IF NOT EXISTS jobs (
@@ -39,8 +39,13 @@ CREATE TABLE IF NOT EXISTS jobs (
     source_ids    TEXT,   -- Amazon: the site's job IDs behind it, comma-separated
     role_type     TEXT,   -- from the title (recon/roles.py): swe, backend, cloud, ...
     posted_on     TEXT,   -- posted_at as an ISO date (Workday's "Posted 3 Days Ago" resolved)
+    my_rating     INTEGER, -- your 👍 (1) / 👎 (-1) from the dashboard; null if unrated
+    rated_at      TEXT,
     -- AI judge (recon/judge.py); ai_scored_at is NULL until judged
-    fit_score     INTEGER,
+    fit_score     INTEGER, -- overall: weighted sum of the three rubric parts below
+    ai_skills     INTEGER, -- rubric parts, 0-100: skills match, level fit, domain fit
+    ai_level      INTEGER,
+    ai_domain     INTEGER,
     ai_why        TEXT,
     ai_missing    TEXT,   -- comma-separated skills
     ai_resume     TEXT,   -- 'ai' or 'general'
@@ -105,7 +110,8 @@ class Store:
             self.db.execute(statement)
         self.db.commit()
         for name, kind in [("site_updated_at", "TEXT"), ("openings", "INTEGER DEFAULT 1"),
-                           ("source_ids", "TEXT"), ("role_type", "TEXT"), ("posted_on", "TEXT")] + AI_COLUMNS:
+                           ("source_ids", "TEXT"), ("role_type", "TEXT"), ("posted_on", "TEXT"),
+                           ("my_rating", "INTEGER"), ("rated_at", "TEXT")] + AI_COLUMNS:
             self.add_column(name, kind)   # tables made before these existed
         self.backfill()
 
@@ -228,11 +234,11 @@ class Store:
         """(job_id, AI result, skip reason or None). A veto turns the match into a skip."""
         t = now()
         self.executemany(
-            "UPDATE jobs SET fit_score=?, ai_why=?, ai_missing=?, ai_resume=?, ai_seniority=?,"
-            " ai_sponsorship=?, ai_years=?, ai_max_years=?, ai_skip=?, ai_scored_at=?,"
+            "UPDATE jobs SET fit_score=?, ai_skills=?, ai_level=?, ai_domain=?, ai_why=?, ai_missing=?,"
+            " ai_resume=?, ai_seniority=?, ai_sponsorship=?, ai_years=?, ai_max_years=?, ai_skip=?, ai_scored_at=?,"
             " decision=?, reason=COALESCE(?, reason) WHERE job_id=? AND decision='match'",
-            [(a["fit_score"], a["why"], ", ".join(a["missing_skills"]), a["resume"], a["seniority"],
-              a["sponsorship"], a["required_years"], a["max_years_allowed"], skip, t, "skip" if skip else "match", skip, job_id)
+            [(a["fit_score"], a["skills_match"], a["level_fit"], a["domain_fit"], a["why"],
+              ", ".join(a["missing_skills"]), a["resume"], a["seniority"], a["sponsorship"], a["required_years"], a["max_years_allowed"], skip, t, "skip" if skip else "match", skip, job_id)
              for job_id, a, skip in results])
 
     def commit(self):

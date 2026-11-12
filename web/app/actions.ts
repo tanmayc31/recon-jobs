@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { COOKIE, MAX_AGE, isCorrectPassword, isValidSession, sessionToken } from "@/lib/auth";
-import { STATUSES, type Status, updateStatus } from "@/lib/db";
+import { RATINGS, type Rating, STATUSES, type Status, updateRating, updateStatus } from "@/lib/db";
 
 async function requireSession() {
   // Actions are public POST endpoints: check the cookie here too, not just in proxy.ts
@@ -17,6 +17,17 @@ export async function setStatus(formData: FormData) {
   const status = String(formData.get("status") ?? "") as Status;
   if (!jobId || !STATUSES.includes(status)) throw new Error("Bad request");
   await updateStatus(jobId, status);
+  revalidatePath("/");
+}
+
+// "1" / "-1" sets 👍 / 👎; "" clears it (pressing your current rating again)
+export async function setRating(formData: FormData) {
+  await requireSession();
+  const jobId = String(formData.get("jobId") ?? "");
+  const value = String(formData.get("rating") ?? "");
+  const rating = value === "" ? null : (Number(value) as Rating);
+  if (!jobId || (rating !== null && !RATINGS.includes(rating))) throw new Error("Bad request");
+  await updateRating(jobId, rating);
   revalidatePath("/");
 }
 

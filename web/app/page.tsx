@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { logout, setStatus } from "./actions";
+import { logout, setRating, setStatus } from "./actions";
 import { FilterPanel } from "./filters";
 import { StatusButton } from "./status-button";
 import { ago, posted, updated } from "@/lib/dates";
@@ -186,6 +186,11 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
             )}
             {job.ai_why}
           </p>
+          {job.ai_skills != null && job.ai_level != null && job.ai_domain != null && (
+            <p className="text-xs text-zinc-500" title="Fit rubric, 0-100 each. Overall = 50% skills + 30% level + 20% domain">
+              Skills <Part n={job.ai_skills} /> · Level <Part n={job.ai_level} /> · Domain <Part n={job.ai_domain} />
+            </p>
+          )}
           {job.ai_missing && <p className="text-zinc-500">Missing: {job.ai_missing}</p>}
         </div>
       )}
@@ -205,6 +210,7 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
         >
           Apply ↗
         </a>
+        <Rate job={job} />
         {moves.map(([status, label]) => (
           <form key={status} action={setStatus}>
             <input type="hidden" name="jobId" value={job.job_id} />
@@ -217,6 +223,41 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
       </div>
     </li>
   );
+}
+
+function Rate({ job }: { job: JobRow }) {
+  return (
+    <div className="flex gap-1" role="group" aria-label="Your rating">
+      {([[1, "👍", "Good match"], [-1, "👎", "Bad match"]] as const).map(([value, emoji, label]) => {
+        const on = job.my_rating === value;
+        return (
+          <form key={value} action={setRating}>
+            <input type="hidden" name="jobId" value={job.job_id} />
+            <input type="hidden" name="rating" value={on ? "" : value} />
+            <StatusButton
+              label={on ? `${label} (yours, press to clear)` : label}
+              pressed={on}
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                on
+                  ? value === 1
+                    ? "border-emerald-500 bg-emerald-100 dark:border-emerald-400 dark:bg-emerald-900/60"
+                    : "border-red-400 bg-red-100 dark:border-red-400 dark:bg-red-900/60"
+                  : "border-zinc-300 opacity-60 grayscale hover:bg-zinc-100 hover:opacity-100 hover:grayscale-0 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {emoji}
+            </StatusButton>
+          </form>
+        );
+      })}
+    </div>
+  );
+}
+
+// a rubric part, colored like the overall score
+function Part({ n }: { n: number }) {
+  const color = n >= 80 ? "text-emerald-700 dark:text-emerald-400" : n >= 50 ? "text-amber-700 dark:text-amber-400" : "text-zinc-500";
+  return <span className={`font-semibold tabular-nums ${color}`}>{n}</span>;
 }
 
 function FitScore({ score }: { score: number }) {
