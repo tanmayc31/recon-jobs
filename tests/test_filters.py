@@ -88,3 +88,25 @@ def test_drops_specialty_tracks():
 def test_gov_flag():
     keep, flags = classify(job("Forward Deployed Software Engineer - US Government", "Washington, D.C."))
     assert keep and flags == ["gov/clearance?"]
+
+
+def test_drops_internships_and_coops_with_a_reason():
+    # real titles: Nvidia's plural "Internships" slipped past the old rule
+    for t in ["NVIDIA 2027 Internships: Software Engineering", "NVIDIA 2027 Internships: Systems Software Engineer",
+              "Software Engineer Intern", "Software Engineering Interns - Summer 2027",
+              "Software Engineer Co-op (Spring 2027)", "Software Developer Co-ops", "Software Engineer, Coop"]:
+        assert classify(job(t)) == (False, ["intern/co-op"]), t
+    assert is_match(job("Software Engineer, Internal Tools"))       # "Internal" isn't "intern"
+    assert is_match(job("Backend Engineer, International Payments"))
+    assert classify(job("Senior Software Engineer")) == (False, ["title"])
+
+
+def test_leading_country_code_is_not_a_us_state():
+    # real Workday locations (DXC, Iberdrola-style "ESP - MD - LAS ROZAS"): MD here is Madrid, not Maryland
+    for loc in ["ESP - MD - LAS ROZAS", "ESP - MD - LAS ROZAS; ESP - AR - ZARAGOZA",
+                "ITA - MI - CERNUSCO SUL NAVIGLIO", "CRI - SJ - SAN JOSE",
+                "AUS - VIC - MELBOURNE; AUS - WA - PERTH; AUS - NSW - MACQUARIE PARK"]:
+        assert classify(job("Forward Deployed Engineer", loc)) == (False, ["non-US location"]), loc
+    # US city codes in the same spot, and a US site listed next to a foreign one
+    for loc in ["USA - Daytona Beach, FL", "RTP - Durham, NC", "NYC - New York", "ESP - MD - LAS ROZAS; USA - Austin, TX"]:
+        assert is_match(job("Cloud Engineer", loc)), loc

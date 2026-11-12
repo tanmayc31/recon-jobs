@@ -250,3 +250,21 @@ def test_partial_failed_or_empty_fetch_closes_nothing(tmp_path, monkeypatch):
     for _ in range(2):
         asyncio.run(main.run())
     assert closed(tmp_path) == {"greenhouse:co:1": 0, "greenhouse:co:2": 0}
+
+
+def test_recheck_moves_matches_that_fail_new_title_or_location_rules_to_skipped(tmp_path, monkeypatch):
+    intern = Job("greenhouse:co:7", "Co", "NVIDIA 2027 Internships: Software Engineering", "Santa Clara, CA",
+                 "https://example.com/jobs/7", None, "greenhouse", 1, "Build software in Python.")
+    spain = Job("greenhouse:co:8", "Co", "Forward Deployed Engineer", "ESP - MD - LAS ROZAS",
+                "https://example.com/jobs/8", None, "greenhouse", 1, "Build software in Python.")
+    run_once(tmp_path, monkeypatch, [job(1)])
+    s = Store(tmp_path / "t.db")   # saved as matches under the old rules
+    s.upsert_many([(intern, "match", None, None, "new"), (spain, "match", None, None, "backlog")])
+    s.commit()
+    run_once(tmp_path, monkeypatch, [job(1), intern, spain])                 # normal run: verdicts kept
+    assert dict(s.execute("SELECT job_id, decision FROM jobs").fetchall())["greenhouse:co:7"] == "match"
+    run_once(tmp_path, monkeypatch, [job(1), intern, spain], recheck=True)
+    rows = {r[0]: r[1:] for r in Store(tmp_path / "t.db").execute("SELECT job_id, decision, reason, status FROM jobs")}
+    assert rows["greenhouse:co:7"] == ("skip", "intern/co-op", "new")
+    assert rows["greenhouse:co:8"] == ("skip", "non-US location", "backlog")
+    assert rows["greenhouse:co:1"][0] == "match"

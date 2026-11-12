@@ -76,3 +76,39 @@ def test_redirect_to_a_generic_careers_page_is_broken(monkeypatch):
         return httpx.Response(200, json={})
     got = run([job("lever:co:77", "lever", "https://example.com/jobs/77")], handler, monkeypatch)
     assert got["lever:co:77"] == (True, "broken")
+
+
+def test_close_unseen_checks_old_workday_jobs_and_closes_the_gone_ones(tmp_path, monkeypatch, capsys):
+    from recon.models import Job
+    from recon.store import Store
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+    monkeypatch.setattr(linkcheck, "Store", lambda url=None: Store(tmp_path / "t.db", url))
+    s = Store(tmp_path / "t.db")
+    jobs = {  # (url, last seen, status)
+        "workday:autodesk:26WD102129": (AUTODESK, "2026-11-01T00:00:00+00:00", "new"),        # gone
+        "workday:autodesk:R2": (AUTODESK.replace("26WD102129-1", "R2"), "2026-11-01T00:00:00+00:00", "applied"),
+        "workday:cisco:2025041": ("https://cisco.wd5.myworkdayjobs.com/Cisco_Careers/job/Seattle-Washington-US/"
+                                  "Software-Engineer--Backend---Webex-Signaling_2025041", "2026-11-01T00:00:00+00:00", "new"),
+        "workday:cisco:1": ("https://cisco.wd5.myworkdayjobs.com/Cisco_Careers/job/x_1", "2999-01-01T00:00:00+00:00", "new"),
+    }
+    for job_id, (url, seen, status) in jobs.items():
+        s.upsert_many([(Job(job_id, "Co", "Software Engineer", "Austin, TX", url, None, "workday", 3, "x"),
+                        "match", None, None, status)])
+        s.execute("UPDATE jobs SET last_seen_at=? WHERE job_id=?", (seen, job_id))
+    s.commit()
+    asked = []
+
+    def handler(req):
+        asked.append(str(req.url))
+        if "/wday/cxs/autodesk/" in str(req.url):
+            return httpx.Response(403, json={"errorCode": "S22"})                 # taken down
+        return httpx.Response(200, json={"jobPostingInfo": {"title": "Software Engineer"}})
+    assert asyncio.run(linkcheck.close_unseen(httpx.MockTransport(handler))) == (3, 2)
+    assert not any("x_1" in u for u in asked)                                       # seen recently: not checked
+    rows = dict(Store(tmp_path / "t.db").execute("SELECT job_id, closed_at IS NOT NULL FROM jobs").fetchall())
+    assert rows == {"workday:autodesk:26WD102129": 1, "workday:autodesk:R2": 1,     # Applied: badge only
+                    "workday:cisco:2025041": 0, "workday:cisco:1": 0}
+    assert dict(Store(tmp_path / "t.db").execute("SELECT job_id, status FROM jobs").fetchall())[
+        "workday:autodesk:R2"] == "applied"
+    assert "3 Workday jobs unseen for 3+ days, 2 confirmed gone and closed" in capsys.readouterr().out

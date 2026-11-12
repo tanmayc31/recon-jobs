@@ -11,10 +11,12 @@ ROLE = re.compile(
 # ...and must actually be an engineer/developer (drops "FP&A Analyst, Cloud Finance")
 ENG = re.compile(r"engineer|developer|\bswe\b|\bsde\b|\bsre\b", re.I)
 
-# 2. Drop seniority, students, and non-engineering titles
+# 2. Drop students ("NVIDIA 2027 Internships: Software Engineering"; "Internal Tools" stays) ...
+STUDENT = re.compile(r"\b(interns?|internships?|co-?ops?)\b", re.I)
+# ...seniority and non-engineering titles
 EXCLUDE = re.compile(
     r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|distinguished|"
-    r"iii|iv|phd|intern|internship|co-?op|high school|apprentice|"
+    r"iii|iv|phd|high school|apprentice|"
     r"sales|account executive|recruiter|marketing|analyst|consultant|strategist|"
     r"solutions engineer|partner|electrical|mechanical|hardware|support engineer|"
     r"quality assurance|\bqa\b|test engineer|contract|ftc|temporary|data center|"
@@ -42,6 +44,14 @@ NON_US = re.compile(
     re.I,
 )
 
+# Workday's "ESP - MD - LAS ROZAS": a leading ISO country code, then region and city. Checked
+# before the US words, or "MD" reads as Maryland. Listed codes only: "RTP - ..." and "NYC - ..."
+# are US city codes in the same spot.
+COUNTRY_CODE = re.compile(
+    r"^\s*(ARE|ARG|AUS|AUT|BEL|BGR|BRA|CAN|CHE|CHL|CHN|COL|CRI|CZE|DEU|DNK|EGY|ESP|EST|FIN|FRA|GBR|GRC|"
+    r"HKG|HRV|HUN|IDN|IND|IRL|ISR|ITA|JPN|KEN|KOR|LTU|LUX|LVA|MAR|MEX|MYS|NGA|NLD|NOR|NZL|PAK|PER|PHL|"
+    r"POL|PRT|QAT|ROU|SAU|SGP|SRB|SVK|SVN|SWE|THA|TUR|TWN|UKR|URY|VNM|ZAF)\s*[-–,|/]")
+
 # Vague locations: keep, but flag ("Hybrid; In-Office" counts too)
 VAGUE_WORD = r"(n/?a|na|hybrid|in-office|distributed|remote|tbd|multiple locations)"
 VAGUE = re.compile(rf"^\s*({VAGUE_WORD}(\s*[;,/|]\s*{VAGUE_WORD})*)?\s*$", re.I)
@@ -58,6 +68,10 @@ GOV = re.compile(r"us government|\busg\b|\bgov\b|federal|public sector|defense|\
 def location_status(loc: str) -> str:
     """'us' = names a US place, 'vague' = no real place given, 'no' = somewhere else."""
     loc = loc or ""
+    parts = loc.split(";")
+    if parts and all(COUNTRY_CODE.match(p) for p in parts):
+        return "no"
+    loc = ";".join(p for p in parts if not COUNTRY_CODE.match(p))   # a US place elsewhere still wins
     if US.search(loc):
         return "us"              # any US place wins, even if Toronto is also listed
     if VAGUE.match(loc):
@@ -66,21 +80,23 @@ def location_status(loc: str) -> str:
 
 
 def classify(job: Job) -> tuple[bool, list[str]]:
-    """Returns (keep, flags)."""
+    """Returns (keep, flags). A dropped job's flags hold why: [title], [intern/co-op] or [non-US location]."""
     t = job.title
     if not (ROLE.search(t) and ENG.search(t)):
-        return False, []
+        return False, ["title"]
+    if STUDENT.search(t):
+        return False, ["intern/co-op"]
     if EXCLUDE.search(t):
-        return False, []
+        return False, ["title"]
     if SECURITY_ONLY.search(t) and not re.search(r"software", t, re.I):
-        return False, []
+        return False, ["title"]
     loc = location_status(job.location)
     if loc == "vague":
         m = AVAILABLE.search(job.description or "")
         if m:
             loc = location_status(CONNECTOR.sub("; ", m.group(1)))
     if loc == "no":
-        return False, []
+        return False, ["non-US location"]
     flags = []
     if loc == "vague":
         flags.append("location?")

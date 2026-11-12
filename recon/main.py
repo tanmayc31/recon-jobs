@@ -73,7 +73,8 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     # Read what we need, then close: fetching takes up to ~10 min and Supabase's pooler drops
     # idle connections (a Workday lane crashed at save time). A fresh connection does the writes.
     store = Store(url=os.environ.get("DATABASE_URL"))   # blank/unset -> local SQLite
-    known = {} if recheck else store.known_jobs()
+    stored = store.known_jobs()
+    known = {} if recheck else stored
     seen = store.seen_companies()
     store.close()
     companies = [c for c in load_companies()
@@ -100,6 +101,10 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
             continue
         keep, flags = classify(j)                 # stage 1: title + location
         if not keep:
+            # a recheck moves old matches that fail a new title/location rule to Skipped
+            if recheck and stored.get(j.job_id, ("",))[0] == "match":
+                rows.append((j, "skip", flags[0], None, "new"))   # status only applies to new rows
+                skipped[flags[0]] += 1
             continue
         # a company's first run is its existing backlog, not news, unless the site says it was
         # posted in the last few days

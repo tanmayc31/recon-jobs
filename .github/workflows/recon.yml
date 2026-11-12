@@ -6,7 +6,7 @@ name: recon
 #   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
 #   3-workday  Tier 3 Workday                       every 6 h
 # Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
-# filter rules reach old jobs.
+# filter rules reach old jobs, then close-check closes gone jobs on big Workday boards.
 # AI judge: after each normal 1-2 run, scores up to 48 unjudged matches from any lane,
 # 6 per Gemini request.
 on:
@@ -57,6 +57,26 @@ jobs:
       recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  close-check:
+    # weekly, after the recheck lanes: auto-close skips filtered/capped Workday boards, so their
+    # jobs unseen for 3+ days are checked one by one against the Workday detail API
+    needs: [tier-1-2, tier-3-workday]
+    if: ${{ !cancelled() && github.event.schedule == '0 4 * * 1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Close gone Workday jobs (counts only; logs are public)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CI: "true"
+        run: python -m recon.linkcheck --close-unseen
 
   judge:
     needs: tier-1-2
