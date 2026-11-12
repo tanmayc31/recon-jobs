@@ -41,49 +41,61 @@ async def run(gap: float = GAP, transport=None) -> Counter:
     sems = {lane: asyncio.Semaphore(n) for lane, n in PARALLEL.items()}
     failed = set()
 
+    found, lock = set(), asyncio.Lock()
+
+    def judge(jobs) -> tuple[list, set, Counter]:
+        rows, ids, c = [], set(), Counter()
+        for j in jobs:
+            if j.job_id not in missing or j.job_id in found or j.job_id in ids:
+                continue
+            ids.add(j.job_id)
+            keep, flags = classify(j)
+            if not keep:              # filter rules changed since: left as is, like a normal run
+                c["title_filter_now_fails"] += 1
+                continue
+            if not j.description.strip():
+                c["still_no_description"] += 1
+                continue
+            ok, reason, yrs, desc_flags = eligibility.check(j.description, j.title)
+            if ok:
+                c["filled_match"] += 1
+                rows.append((j, "match", ", ".join(flags + desc_flags) or None, yrs, "backlog"))
+            else:
+                c["filled_skip"] += 1
+                c[f"skip: {'too many years' if 'years' in reason else reason}"] += 1
+                rows.append((j, "skip", reason, yrs, "backlog"))   # status only applies to new rows
+        return rows, ids, c
+
+    def save(rows):
+        store = Store(url=os.environ.get("DATABASE_URL"))
+        store.upsert_many(rows)
+        store.commit()
+        store.close()
+
     async def one(client, company):
+        # saved company by company: a dropped connection loses one company, not the run
         async with sems["workday" if company["ats"] == "workday" else "other"]:
             try:
-                return await asyncio.wait_for(SOURCES[company["ats"]].fetch(client, company), TIMEOUT)
+                jobs = await asyncio.wait_for(SOURCES[company["ats"]].fetch(client, company), TIMEOUT)
+                async with lock:
+                    rows, ids, c = judge(jobs)
+                    if rows:
+                        await asyncio.to_thread(save, rows)
+                    found.update(ids)   # counted only once saved
+                    counts.update(c)
             except Exception as e:
                 failed.add(company["company"])
                 print(f"⚠️  {'company' if quiet() else company['company']}: {type(e).__name__}")
-                return []
             finally:
                 await asyncio.sleep(gap)
 
     async with httpx.AsyncClient(timeout=30, headers=HEADERS, transport=transport) as client:
-        results = await asyncio.gather(*(one(client, c) for c in companies))
+        await asyncio.gather(*(one(client, c) for c in companies))
 
-    rows, found = [], set()
-    for j in (j for jobs in results for j in jobs):
-        if j.job_id not in missing or j.job_id in found:
-            continue
-        found.add(j.job_id)
-        keep, flags = classify(j)
-        if not keep:              # filter rules changed since: left as is, like a normal run
-            counts["title_filter_now_fails"] += 1
-            continue
-        if not j.description.strip():
-            counts["still_no_description"] += 1
-            continue
-        ok, reason, yrs, desc_flags = eligibility.check(j.description, j.title)
-        if ok:
-            counts["filled_match"] += 1
-            rows.append((j, "match", ", ".join(flags + desc_flags) or None, yrs, "backlog"))
-        else:
-            counts["filled_skip"] += 1
-            counts[f"skip: {'too many years' if 'years' in reason else reason}"] += 1
-            rows.append((j, "skip", reason, yrs, "backlog"))   # status only applies to new rows
     left = [n for i, n in missing.items() if i not in found and n in tracked]
     counts["companies_failed"] = len(failed)
     counts["fetch_failed"] = sum(1 for n in left if n in failed)        # retry: run it again
     counts["not_listed_anymore"] = sum(1 for n in left if n not in failed)
-
-    store = Store(url=os.environ.get("DATABASE_URL"))
-    store.upsert_many(rows)
-    store.commit()
-    store.close()
     print("Backfill: " + ", ".join(f"{k}: {v}" for k, v in counts.items() if v))
     return counts
 

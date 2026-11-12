@@ -42,3 +42,24 @@ def test_fills_descriptions_and_applies_the_description_rules(tmp_path, monkeypa
     assert rows["greenhouse:co:2"][:3] == ("skip", "citizenship/clearance", "new")   # status kept
     assert rows["greenhouse:co:3"] == ("match", None, "backlog", None)              # left as is
     assert "skip: citizenship/clearance: 1" in capsys.readouterr().out
+
+
+def test_one_failing_company_does_not_lose_the_others(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    s = Store(tmp_path / "t.db")
+    s.upsert_many([(job(1), "match", None, None, "backlog"), (job(2, company="Down"), "match", None, None, "backlog")])
+    s.commit()
+    monkeypatch.setattr(backfill, "Store", lambda url=None: Store(tmp_path / "t.db", url))
+    monkeypatch.setattr(backfill, "load_companies", lambda: [
+        {"company": "Co", "ats": "greenhouse", "slug": "co", "tier": "1"},
+        {"company": "Down", "ats": "greenhouse", "slug": "down", "tier": "1"}])
+
+    async def fetch(client, company):
+        if company["company"] == "Down":
+            raise OSError("nodename nor servname provided")      # what the dropped network looked like
+        return [job(1, GOOD)]
+    monkeypatch.setitem(backfill.SOURCES, "greenhouse", type("Fake", (), {"fetch": staticmethod(fetch)}))
+
+    counts = asyncio.run(backfill.run(gap=0))
+    assert (counts["filled_match"], counts["companies_failed"], counts["fetch_failed"]) == (1, 1, 1)
+    assert Store(tmp_path / "t.db").undescribed() == {"greenhouse:co:2": "Down"}   # left for a rerun
