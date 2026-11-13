@@ -44,6 +44,12 @@ NON_US = re.compile(
     re.I,
 )
 
+# "Columbus, OH": any state code after a comma, uppercase only ("Remote in Canada" isn't Indiana).
+# US above only knows 18 codes as bare words.
+US_STATE = re.compile(
+    r",\s*(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|"
+    r"NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b")
+
 # Workday's "ESP - MD - LAS ROZAS": a leading ISO country code, then region and city. Checked
 # before the US words, or "MD" reads as Maryland. Listed codes only: "RTP - ..." and "NYC - ..."
 # are US city codes in the same spot.
@@ -72,7 +78,7 @@ def location_status(loc: str) -> str:
     if parts and all(COUNTRY_CODE.match(p) for p in parts):
         return "no"
     loc = ";".join(p for p in parts if not COUNTRY_CODE.match(p))   # a US place elsewhere still wins
-    if US.search(loc):
+    if US.search(loc) or US_STATE.search(loc):
         return "us"              # any US place wins, even if Toronto is also listed
     if VAGUE.match(loc):
         return "vague"

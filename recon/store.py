@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     source_ids    TEXT,   -- Amazon: the site's job IDs behind it, comma-separated
     role_type     TEXT,   -- from the title (recon/roles.py): swe, backend, cloud, ...
     level         TEXT,   -- entry / ii / unknown (recon/roles.py level: title, then AI, then years)
+    via           TEXT,   -- 'list' (a GitHub job list) or 'you' (dashboard "Add job"); null: its board
     posted_on     TEXT,   -- posted_at as an ISO date (Workday's "Posted 3 Days Ago" resolved)
     my_rating     INTEGER, -- your 👍 (1) / 👎 (-1) from the dashboard; null if unrated
     missed_runs   INTEGER DEFAULT 0, -- complete fetches of its company in a row without it
@@ -127,7 +128,7 @@ class Store:
                            ("source_ids", "TEXT"), ("role_type", "TEXT"), ("posted_on", "TEXT"),
                            ("my_rating", "INTEGER"), ("rated_at", "TEXT"),
                            ("missed_runs", "INTEGER DEFAULT 0"), ("closed_at", "TEXT"),
-                           ("closed_reason", "TEXT"), ("level", "TEXT")] + AI_COLUMNS:
+                           ("closed_reason", "TEXT"), ("level", "TEXT"), ("via", "TEXT")] + AI_COLUMNS:
             self.add_column(name, kind)   # tables made before these existed
         self.backfill()
 
@@ -235,19 +236,19 @@ class Store:
             if d == "match" and vetoed[j.job_id]:
                 d, r = "skip", vetoed[j.job_id]
             updates.append((t, d, r, y, j.posted_at, j.updated_at, desc(j, d), j.openings, j.source_ids,
-                            role_type(j.title), *[posted_on(j.posted_at, t)] * 2, j.job_id))
+                            role_type(j.title), *[posted_on(j.posted_at, t)] * 2, j.via, j.job_id))
         self.executemany(
             "UPDATE jobs SET last_seen_at=?, decision=?, reason=?, min_years=?,"
             " posted_at=COALESCE(?, posted_at), site_updated_at=COALESCE(?, site_updated_at),"
             " description=COALESCE(?, description), openings=?, source_ids=COALESCE(?, source_ids),"
-            f" role_type=?, {EARLIEST} WHERE job_id=?", updates)
+            f" role_type=?, {EARLIEST}, via=COALESCE(via, ?) WHERE job_id=?", updates)
         self.executemany(
             "INSERT INTO jobs (job_id, company, title, location, url, source, tier, posted_at, first_seen_at,"
             " last_seen_at, decision, reason, min_years, site_updated_at, status, description, openings, source_ids,"
-            " role_type, posted_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " role_type, posted_on, via) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(j.job_id, j.company, j.title, j.location, j.url, j.source, j.tier,
               j.posted_at, t, t, d, r, y, j.updated_at, s, desc(j, d), j.openings, j.source_ids,
-              role_type(j.title), posted_on(j.posted_at, t))
+              role_type(j.title), posted_on(j.posted_at, t), j.via)
              for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
         self.refresh_levels(ids)
         return set(ids) - set(vetoed)
@@ -281,6 +282,16 @@ class Store:
         """Close jobs the site's API says are gone (recon/linkcheck.py)."""
         self.executemany("UPDATE jobs SET closed_at=?, closed_reason='api' WHERE job_id=? AND closed_at IS NULL",
                          [(now(), i) for i in job_ids])
+
+    def list_ids(self) -> set[str]:
+        """Job-list rows already saved (recon/sources/listings.py): their links aren't resolved again."""
+        return {r[0] for r in self.execute("SELECT source_ids FROM jobs WHERE via = 'list'").fetchall()}
+
+    def covered_keys(self) -> set[tuple[str, str, str]]:
+        """(company, title, location), lowercase, of jobs our own adapters found: a job list's copy
+        of one of these is skipped."""
+        return {(c.lower(), t.lower(), (loc or "").lower()) for c, t, loc in self.execute(
+            "SELECT company, title, location FROM jobs WHERE via IS NULL").fetchall()}
 
     def undescribed(self) -> dict[str, str]:
         """job_id -> company for matches saved without a description (recon/backfill.py)."""

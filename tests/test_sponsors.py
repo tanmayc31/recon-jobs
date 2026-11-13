@@ -1,4 +1,4 @@
-from recon.sponsors import NON_US, ats_of, board_slug, canon, match, rank, simplify_index, sponsor_rows
+from recon.sponsors import NON_US, ats_of, board_slug, canon, match, rank, list_index, sponsor_rows
 
 
 def lca(case, employer, soc="15-1252.00", title="Software Engineer", status="Certified", visa="H-1B"):
@@ -59,12 +59,10 @@ def test_board_slug():
     assert board_slug("ashby", "https://jobs.ashbyhq.com/rivianvw.tech/e1647212/application") == "rivianvw.tech"
 
 
-def test_simplify_rows_and_continuations():
-    md = """<tr><td><strong><a href="https://simplify.jobs/c/Chewy">Chewy</a></strong></td><td>SWE I</td>
-<td>Boston, MA</td><td><a href="https://wd5.myworkdaysite.com/recruiting/chewy/External/job/1?utm_source=Simplify">
-Apply</a></td><td>0d</td></tr>
-<tr><td>↳</td><td>SWE II</td><td>Boston, MA</td><td><a href="https://simplify.jobs/p/1">Apply</a></td><td>1d</td></tr>"""
-    assert simplify_index([md]) == {"chewy": [("workday", "https://wd5.myworkdaysite.com/recruiting/chewy/External/job/1")]}
+def test_job_list_index():
+    links = [{"company": "Chewy", "url": "https://wd5.myworkdaysite.com/recruiting/chewy/External/job/1?src=list"},
+             {"company": "Chewy", "url": "https://www.linkedin.com/jobs/view/1"}]          # non-US/aggregator: dropped
+    assert list_index(links) == {"chewy": [("workday", "https://wd5.myworkdaysite.com/recruiting/chewy/External/job/1")]}
 
 
 def test_sponsor_rows_add_up_employers_per_company(tmp_path):

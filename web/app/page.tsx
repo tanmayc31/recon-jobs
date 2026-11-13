@@ -141,6 +141,14 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
         {job.posted_on && <span className="text-zinc-500">{posted(job.posted_on, job.posted_at)} ·</span>}
         {edited && <span className="text-zinc-500">{edited} ·</span>}
         <span className="text-zinc-500">found {ago(job.first_seen_at)}</span>
+        {job.via && (
+          <span
+            title={job.via === "list" ? "From a GitHub new-grad job list (vanshb03/New-Grad-2027)" : "You added this job"}
+            className="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-800 dark:bg-sky-900/50 dark:text-sky-300"
+          >
+            {job.via === "list" ? "from list" : "added by you"}
+          </span>
+        )}
         {job.closed_at && (
           <span
             title={`No longer on the company's board (closed ${ago(job.closed_at)})`}

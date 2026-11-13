@@ -49,6 +49,7 @@ export type JobRow = {
   openings: number | null; // Amazon: identical title + location postings collapsed into this job
   role_type: string | null;
   level: string | null; // entry / ii / unknown (recon/roles.py)
+  via: "list" | "you" | null; // from a GitHub job list, or added by you; null: found on its board
   filings: number | null; // H-1B software filings (sponsors table), null if not a known sponsor
   my_rating: Rating | null; // your 👍 / 👎
   closed_at: string | null; // gone from the company's board
@@ -132,7 +133,7 @@ export async function listJobs(tab: Tab, f: Filters, limit: number): Promise<{ j
       SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.posted_on, j.site_updated_at,
              j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_skills,
              j.ai_level, j.ai_domain, j.ai_why, j.ai_missing, j.ai_resume, j.ai_max_years, j.openings,
-             j.role_type, j.level, j.my_rating, j.closed_at, sp.filings
+             j.role_type, j.level, j.via, j.my_rating, j.closed_at, sp.filings
       FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
       WHERE ${where}
       ORDER BY ${orderBy(sql, f)}

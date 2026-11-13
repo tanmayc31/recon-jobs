@@ -20,11 +20,11 @@ import httpx
 
 from recon.env import load_env
 from recon.main import HEADERS, quiet
-from recon.sources import ashby
+from recon.sources import ashby, listings
 from recon.store import Store
 
 DELAY = 0.3
-PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2}   # per site, polite
+PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2, "list": 3}   # per site, polite
 SAMPLE = {"workday": 20, "greenhouse": 5, "lever": 5, "ashby": 5, "amazon": 5}
 COLS = ["job_id", "source", "url", "source_ids", "company", "title"]
 WORKDAY = [  # public job URL -> parts of the detail API URL
@@ -39,6 +39,12 @@ DEAD = re.compile(r"page you are looking for doesn.t exist|page (you requested )
                   r"no longer (available|accepting|open|active)|job (has been|is) (closed|filled|removed)|"
                   r"position (has been|is) (closed|filled)|this job (posting )?(has )?expired|"
                   r"couldn.t find (that|this|the) (job|page)", re.I)
+# bot protection in front of a company site (Tesla, Citadel Securities): the page can't be judged
+BLOCKED = re.compile(r"access denied|security verification|verify you are (a )?human|are you a robot|captcha|"
+                     r"checking your browser|unusual traffic", re.I)
+RENDER_PARALLEL = 3
+BATCH = 300   # jobs checked, then saved, at a time (recheck_open)
+PAGE_LIMIT = 70   # seconds for one rendered page, all in
 
 
 def workday_api(url: str) -> str | None:
@@ -70,6 +76,14 @@ async def ashby_board(client: httpx.AsyncClient, slug: str) -> set[str] | None:
     return listed
 
 
+async def list_rows(client: httpx.AsyncClient) -> set[str] | None:
+    """Row IDs still active on the job lists, or None if a list didn't load."""
+    try:
+        return {r["id"] for repo in listings.LISTS for r in await listings.rows(client, repo)}
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
 async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | None:
     """True open, False gone, None couldn't tell. boards: per-run cache of Ashby boards."""
     source, slug = job["source"], job["job_id"].split(":")[1]
@@ -89,6 +103,14 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
             boards[slug] = asyncio.ensure_future(ashby_board(client, slug))   # one fetch per board
         listed = await boards[slug]
         return None if listed is None else ids(job)[0] in listed
+    if source == "list":    # from a job list, on a company site we can't ask: still listed, and the page loads
+        if "list" not in boards:
+            boards["list"] = asyncio.ensure_future(list_rows(client))
+        active = await boards["list"]
+        if active is not None and job.get("source_ids") not in active:
+            return False
+        r = await client.get(job["url"])
+        return False if r.status_code in (404, 410) else True if r.status_code < 400 else None
     if source == "amazon":  # collapsed: open while any of its requisitions is
         for i in ids(job):
             r = await client.get(f"https://www.amazon.jobs/en/jobs/{i}")
@@ -100,6 +122,34 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
 
 
 async def check_open(jobs: list[dict], transport=None) -> list[tuple[dict, bool | None]]:
+    """is_open for many jobs: a few at a time per site. Job-list jobs on company sites (no API)
+    are also opened in a browser when Playwright is installed (render_open): Microsoft's page says
+    "No longer accepting applications" only once rendered, while the list still calls it active."""
+    results = await api_open(jobs, transport)
+    pages = [j for j, ok in results if j["source"] == "list" and ok is not False]
+    if pages and transport is None:
+        rendered = await render_open(pages)
+        results = [(j, rendered.get(j["job_id"], ok) if j["source"] == "list" and ok is not False else ok)
+                   for j, ok in results]
+    return results
+
+
+async def render_open(jobs: list[dict]) -> dict[str, bool | None]:
+    """job_id -> open, from the rendered page; {} without Playwright."""
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return {}
+    out = {}
+    for r in await render(jobs):
+        if r["page"] == "ok":
+            out[r["job_id"]] = True
+        elif r["page"] in ("dead", "no title"):
+            out[r["job_id"]] = None if BLOCKED.search(r["text"]) else False
+    return out
+
+
+async def api_open(jobs: list[dict], transport=None) -> list[tuple[dict, bool | None]]:
     """is_open for many jobs: a few at a time per site."""
     sems, boards = {s: asyncio.Semaphore(n) for s, n in PARALLEL.items()}, {}
     async with httpx.AsyncClient(timeout=30, headers=HEADERS, follow_redirects=True, transport=transport) as client:
@@ -122,15 +172,17 @@ async def recheck_open(transport=None) -> tuple[int, int]:
         f"SELECT {', '.join(COLS)} FROM jobs WHERE closed_at IS NULL"
         " AND ((decision = 'match' AND status IN ('new', 'backlog')) OR status = 'later')").fetchall()]
     store.close()
-    results = await check_open(jobs, transport)
-    gone = [job["job_id"] for job, ok in results if ok is False]
-    store = Store(url=os.environ.get("DATABASE_URL"))
-    store.close_jobs(gone)
-    store.commit()
-    store.close()
-    print(f"Open check: {len(jobs)} jobs in New/Backlog/Later, {len(gone)} gone and closed,"
-          f" {sum(1 for _, ok in results if ok is None)} couldn't be checked")
-    return len(jobs), len(gone)
+    gone, unknown = 0, 0
+    for i in range(0, len(jobs), BATCH):   # saved batch by batch: a dropped connection loses one batch
+        results = await check_open(jobs[i:i + BATCH], transport)
+        closing = [job["job_id"] for job, ok in results if ok is False]
+        store = Store(url=os.environ.get("DATABASE_URL"))
+        store.close_jobs(closing)
+        store.commit()
+        store.close()
+        gone, unknown = gone + len(closing), unknown + sum(1 for _, ok in results if ok is None)
+    print(f"Open check: {len(jobs)} jobs in New/Backlog/Later, {gone} gone and closed, {unknown} couldn't be checked")
+    return len(jobs), gone
 
 
 def title_seen(title: str, text: str) -> bool:
@@ -148,21 +200,29 @@ def verdict(title: str, text: str) -> str:
 
 
 async def render(jobs: list[dict], wait: float = 6) -> list[dict]:
-    """Open each job's link in a real browser and judge the rendered page. Needs Playwright
-    (pip install playwright; python -m playwright install chromium): local only, not in CI."""
+    """Open each job's link in a real browser and judge the rendered page, a few at a time.
+    Needs Playwright (pip install playwright; python -m playwright install chromium)."""
     from playwright.async_api import async_playwright
-    out = []
+    sem = asyncio.Semaphore(RENDER_PARALLEL)
     async with async_playwright() as p:
         browser = await p.chromium.launch()
-        page = await browser.new_page()
-        for job in jobs:
-            try:
-                await page.goto(job["url"], wait_until="domcontentloaded", timeout=45000)
-                await page.wait_for_timeout(wait * 1000)
-                text = " ".join((await page.inner_text("body")).split())
-                out.append(dict(job, page=verdict(job["title"], text), final=page.url, text=text[:200]))
-            except Exception as e:
-                out.append(dict(job, page=type(e).__name__, final="", text=""))
+
+        async def one(job):
+            async with sem:
+                page = await browser.new_page()
+
+                async def read():
+                    await page.goto(job["url"], wait_until="domcontentloaded", timeout=45000)
+                    await page.wait_for_timeout(wait * 1000)
+                    return " ".join((await page.inner_text("body", timeout=10000)).split())
+                try:
+                    text = await asyncio.wait_for(read(), PAGE_LIMIT)   # one slow site can't stall the run
+                    return dict(job, page=verdict(job["title"], text), final=page.url, text=text[:300])
+                except Exception as e:
+                    return dict(job, page=type(e).__name__, final="", text="")
+                finally:
+                    await page.close()
+        out = await asyncio.gather(*(one(j) for j in jobs))
         await browser.close()
     return out
 

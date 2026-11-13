@@ -110,3 +110,12 @@ def test_leading_country_code_is_not_a_us_state():
     # US city codes in the same spot, and a US site listed next to a foreign one
     for loc in ["USA - Daytona Beach, FL", "RTP - Durham, NC", "NYC - New York", "ESP - MD - LAS ROZAS; USA - Austin, TX"]:
         assert is_match(job("Cloud Engineer", loc)), loc
+
+
+def test_any_state_code_after_a_comma_is_us():
+    # real list rows (vanshb03/New-Grad-2027): states the bare-word rule didn't know
+    for loc in ["Columbus, OH", "Indianapolis, IN", "Minneapolis, MN", "Madison, WI", "Peoria, IL; Tempe, AZ",
+                "Kansas City, MO", "Nashville, TN"]:
+        assert is_match(job("Software Engineer", loc)), loc
+    for loc in ["Remote in Canada", "Toronto, ON", "Pune, MH", "Zurich, ZH", "Vancouver, BC"]:
+        assert not is_match(job("Software Engineer", loc)), loc

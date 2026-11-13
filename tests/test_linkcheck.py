@@ -111,3 +111,40 @@ def test_rendered_page_verdicts():
     # a redirect to the careers home page: no dead message, but not the job either
     assert linkcheck.verdict("Site Reliability Engineer (US - Pacific time)",
                              "Products Pricing Docs Community Company Careers at PostHog Open roles") == "no title"
+
+
+def test_list_jobs_are_open_while_listed_and_the_page_loads(monkeypatch):
+    from recon.sources import listings
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def lists(req):
+        url = str(req.url)
+        if url in listings.LISTS.values():
+            return httpx.Response(200, json=[{"id": "id-3", "active": True}, {"id": "id-4", "active": False}])
+        return httpx.Response(404 if "gone" in url else 200)
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("list:id-3", "list", "https://www.google.com/about/careers/x", "id-3"),
+        job("list:id-4", "list", "https://www.google.com/about/careers/y", "id-4"),         # off the list
+        job("list:id-5", "list", "https://www.google.com/about/careers/gone", "id-5"),       # not listed
+    ], httpx.MockTransport(lists)))}
+    assert got == {"list:id-3": True, "list:id-4": False, "list:id-5": False}
+
+
+def test_rendered_list_pages_open_gone_or_blocked(monkeypatch):
+    # real rendered text (Nov 2026): Microsoft's page loads but the job is closed; Tesla and
+    # Citadel Securities put bot protection in front of a headless browser: can't tell, keep it
+    pages = {
+        "list:ms": "Careers Single Position View All Jobs Software Engineering IC2 United States, Washington, Redmond "
+                   "No longer accepting applications. Job number 200064642",
+        "list:tesla": "Access Denied You don't have permission to access \"http://www.tesla.com/careers/search/job/240332\"",
+        "list:citadel": "www.citadelsecurities.com Performing security verification This website uses a security service",
+        "list:apple": "Graphics Software Content Engineer Orlando, Florida, United States Software and Services",
+    }
+
+    async def render(jobs, wait=6):
+        return [dict(j, page=linkcheck.verdict(j["title"], pages[j["job_id"]]), text=pages[j["job_id"]]) for j in jobs]
+    monkeypatch.setattr(linkcheck, "render", render)
+    jobs = [job("list:ms", "list", "u", title="Software Engineering IC2"), job("list:tesla", "list", "u", title="Software Engineer, Traction Control"),
+            job("list:citadel", "list", "u", title="Software Engineer"), job("list:apple", "list", "u", title="Graphics Software Content Engineer")]
+    assert asyncio.run(linkcheck.render_open(jobs)) == {"list:ms": False, "list:tesla": None, "list:citadel": None,
+                                                       "list:apple": True}

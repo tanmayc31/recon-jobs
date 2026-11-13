@@ -1,4 +1,4 @@
-from recon.discover import dedupe, from_jobseek, from_readme, parse_board
+from recon.discover import dedupe, from_jobseek, from_list, jobright_companies, parse_board
 
 
 def test_parse_real_simplify_links():
@@ -27,18 +27,24 @@ def test_skips_embed_eu_and_other_ats():
     assert parse_board("https://careers-peraton.icims.com/jobs/164003/job") is None
 
 
-def test_readme_rows_and_continuations():
-    md = """<tr>
-<td><strong><a href="https://simplify.jobs/c/Twitch?utm_source=GHList">Twitch</a></strong></td>
-<td>Software Development Engineer 1</td><td>Seattle, WA</td>
-<td><a href="https://job-boards.greenhouse.io/twitch/jobs/8931345002?utm_source=Simplify">Apply</a></td>
-</tr>
-<tr>
-<td>↳</td>
-<td>Software Development Engineer 1 - Security Platform</td><td>Seattle, WA</td>
-<td><a href="https://job-boards.greenhouse.io/twitch/jobs/8931343002?utm_source=Simplify">Apply</a></td>
-</tr>"""
-    assert from_readme(md) == [{"company": "Twitch", "ats": "greenhouse", "slug": "twitch"}] * 2
+def test_job_list_links_become_boards():
+    # real vanshb03/New-Grad-2027 rows, go links already resolved
+    links = [{"company": "RLI", "url": "https://wd1.myworkdaysite.com/recruiting/rlicorp/RLI_Corp_Careers/job/"
+                                       "Peoria-IL/Associate-Software-Engineer_R1864"},
+             {"company": "Twitch", "url": "https://job-boards.greenhouse.io/twitch/jobs/8931345002"},
+             {"company": "Google", "url": "https://www.google.com/about/careers/applications/jobs/results/1"}]
+    assert from_list(links) == [{"company": "RLI", "ats": "workday", "slug": "rlicorp|wd1|RLI_Corp_Careers"},
+                                {"company": "Twitch", "ats": "greenhouse", "slug": "twitch"}]
+
+
+def test_jobright_company_column_only():
+    # real rows: the company cell links the company's homepage; job links (jobright.ai) are never read
+    md = """| Company | Job Title | Location | Work Model | Date Posted |
+| ----- | --------- | --------- | ---- | ------- |
+| **[Apple](https://www.apple.com)** | **[Software Engineer](https://jobright.ai/jobs/info/1?utm_source=1103)** | Cupertino, CA | On Site | Nov 12 |
+| ↳ | **[Software Engineer II](https://jobright.ai/jobs/info/2)** | Austin, TX | On Site | Nov 12 |
+| **[CLA (CliftonLarsonAllen)](http://www.claconnect.com)** | **[Associate Developer](https://jobright.ai/jobs/info/3)** | Remote | Remote | Nov 11 |"""
+    assert jobright_companies(md) == {"Apple": "https://www.apple.com", "CLA (CliftonLarsonAllen)": "http://www.claconnect.com"}
 
 
 def test_jobseek_rows_keep_supported_ats_only():
@@ -62,3 +68,11 @@ def test_dedupe_against_companies_csv():
              {"company": "Twitch", "ats": "greenhouse", "slug": "twitch"},
              {"company": "Twitch", "ats": "greenhouse", "slug": "Twitch"}]                            # repeat
     assert dedupe(found, existing) == [{"company": "Twitch", "ats": "greenhouse", "slug": "twitch"}]
+
+
+def test_boards_named_wrongly_are_never_added():
+    # Job Seek names Cambridge Consultants' board "Capgemini" and Home Chef's "Kroger"
+    got = dedupe([{"company": "Capgemini", "ats": "greenhouse", "slug": "cambridgeconsultantslimited"},
+                  {"company": "Kroger", "ats": "greenhouse", "slug": "homechef"},
+                  {"company": "RLI", "ats": "workday", "slug": "rlicorp|wd1|RLI_Corp_Careers"}], [])
+    assert [c["company"] for c in got] == ["RLI"]

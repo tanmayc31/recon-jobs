@@ -22,7 +22,7 @@ from pathlib import Path
 import httpx
 
 from recon.detect import CHECKS
-from recon.discover import JOBSEEK, READMES, parse_board
+from recon.discover import JOBSEEK, list_links, parse_board
 from recon.env import load_env
 from recon.main import COMPANIES, HEADERS
 from recon.store import Store
@@ -324,20 +324,22 @@ def jobseek_index(text: str) -> dict[str, list]:
     return idx
 
 
-def simplify_index(readmes: list[str]) -> dict[str, list]:
-    """Simplify README rows: company cell, then the first link in the Application cell ("↳" = same company)."""
-    idx, company = {}, None
-    for md in readmes:
-        for row in re.findall(r"<tr>(.*?)</tr>", md, re.S):
-            cells = re.findall(r"<td>(.*?)</td>", row, re.S)
-            if len(cells) < 4:
-                continue
-            name = re.sub(r"<[^>]+>", "", cells[0]).strip()
-            company = company if name.startswith("↳") else name
-            link = re.search(r'href="([^"]+)"', cells[3])
-            if company and link and "simplify.jobs" not in link.group(1) and not NON_US.search(link.group(1)):
-                idx.setdefault(canon(company), []).append((ats_of(link.group(1)), link.group(1).split("?")[0][:150]))
+def list_index(links: list[dict]) -> dict[str, list]:
+    """Job-list rows (discover.list_links: company + real posting URL) -> canon key -> [(ats, url)]."""
+    idx = {}
+    for x in links:
+        if not NON_US.search(x["url"]):
+            idx.setdefault(canon(x["company"]), []).append((ats_of(x["url"]), x["url"].split("?")[0][:150]))
     return idx
+
+
+def filings_by_key(path: Path = SPONSORS) -> dict[str, int]:
+    """canon key -> certified H-1B software filings (config/sponsors.csv)."""
+    out = Counter()
+    with open(path) as f:
+        for r in csv.DictReader(f):
+            out[canon(r["employer"])] += int(r["swe_filings"])
+    return out
 
 
 def board_slug(ats: str, evidence: str) -> str | None:
@@ -365,10 +367,13 @@ async def detect(client, slug: str):
     return None
 
 
-async def careers_page(client, key: str):
-    """Guessed homepage / careers page -> (ats, evidence). Least reliable source: the domain is a guess."""
+async def careers_page(client, key: str, home: str | None = None):
+    """Careers page -> (ats, evidence). With the company's real homepage (home) its /careers page
+    is tried first; otherwise the domain is a guess, the least reliable source."""
     base = "".join(re.sub(r"[^a-z0-9 ]", " ", key).split())
-    for url in [f"https://www.{base}.com/careers", f"https://www.{base}.com/", f"https://careers.{base}.com/"]:
+    guesses = [f"https://www.{base}.com/careers", f"https://www.{base}.com/", f"https://careers.{base}.com/"]
+    first = [home.rstrip("/") + "/careers", home] if home else []
+    for url in dict.fromkeys(first + guesses):
         try:
             r = await client.get(url, follow_redirects=True)
         except Exception:
@@ -403,8 +408,8 @@ async def find_ats(missing: list[dict]):
     """Sets ats / evidence / how (and slug / verified for boards we can poll) on each missing sponsor."""
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
         boards = (await client.get(JOBSEEK)).text
-        readmes = [(await client.get(u)).text for u in READMES.values()]
-    sources = {"jobseek": jobseek_index(boards), "simplify": simplify_index(readmes)}
+        links = await list_links(client)
+    sources = {"jobseek": jobseek_index(boards), "list": list_index(links)}
     for e in missing:
         if e["key"] in OVERRIDES:
             e["ats"], e["evidence"] = OVERRIDES[e["key"]]
@@ -428,7 +433,7 @@ async def find_ats(missing: list[dict]):
                             e["ats"], e["evidence"], e["how"] = hit[0], f"{hit[0]} slug {hit[1]} ({hit[2]} jobs)", "detect"
                             break
                     if not e.get("ats"):
-                        hit = await careers_page(client, e["key"])
+                        hit = await careers_page(client, e["key"], e.get("home"))
                         e["ats"], e["evidence"], e["how"] = (*hit, "careers page") if hit else ("unknown", "", "none")
                 if e["ats"] in SUPPORTED:
                     e["slug"] = board_slug(e["ats"], e["evidence"])

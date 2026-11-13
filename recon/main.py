@@ -12,10 +12,11 @@ import httpx
 from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
-from recon.sources import amazon, ashby, greenhouse, lever, workday
+from recon.sources import amazon, ashby, greenhouse, lever, listings, workday
 from recon.store import MISSES_TO_CLOSE, Store, fresh, now
 
-SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon}
+SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon,
+           "listings": listings}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
@@ -25,6 +26,7 @@ PARALLEL = {"workday": 10, "other": 20}
 # and give any one company at most COMPANY_TIMEOUT, so fetching ends by ~10 min.
 DEADLINE = 8 * 60
 COMPANY_TIMEOUT = 2 * 60
+LIST_TIMEOUT = 6 * 60   # a job list resolves every new row's link; the first run has hundreds
 
 
 def quiet() -> bool:
@@ -57,7 +59,8 @@ async def fetch_company(client, sems, company, deadline, outcome):
             outcome["not reached"] += 1
             return None
         try:
-            jobs = await asyncio.wait_for(SOURCES[company["ats"]].fetch(client, company), COMPANY_TIMEOUT)
+            limit = LIST_TIMEOUT if company["ats"] == "listings" else COMPANY_TIMEOUT
+            jobs = await asyncio.wait_for(SOURCES[company["ats"]].fetch(client, company), limit)
             outcome["ok"] += 1
             return jobs
         except Exception as e:
@@ -76,23 +79,29 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     stored = store.known_jobs()
     known = {} if recheck else stored
     seen = store.seen_companies()
-    store.close()
     companies = [c for c in load_companies()
                  if (not tiers or int(c["tier"]) in tiers) and (not ats or c["ats"] in ats)]
     for c in companies:
         c["known"] = known   # adapters skip description requests for these job IDs
+    if any(c["ats"] == "listings" for c in companies):
+        list_ids, covered = store.list_ids(), store.covered_keys()
+        for c in companies:
+            if c["ats"] == "listings":
+                c["list_ids"], c["covered"] = list_ids, covered
+    store.close()
     random.shuffle(companies)   # if the time budget runs out, a different set waits each run
     sems = {lane: asyncio.Semaphore(n) for lane, n in PARALLEL.items()}
     outcome = Counter()
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
         results = await asyncio.gather(*(
             fetch_company(client, sems, c, started + DEADLINE, outcome) for c in companies))
-    all_jobs = [j for jobs in results if jobs for j in jobs]
+    # (board, job): a job list's jobs belong to many companies, but its first run is the list's
+    all_jobs = [(c["company"], j) for c, jobs in zip(companies, results) if jobs for j in jobs]
 
     store = Store(url=os.environ.get("DATABASE_URL"))
     new_matches, backlog, unverified, skipped, rows, kept, still_listed = [], 0, 0, Counter(), [], {}, []
 
-    for j in all_jobs:
+    for board, j in all_jobs:
         if j.job_id in known:   # judged before: keep the stored verdict, just note it's still listed
             decision, reason, _ = known[j.job_id]
             if decision == "skip":
@@ -108,7 +117,7 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
             continue
         # a company's first run is its existing backlog, not news, unless the site says it was
         # posted in the last few days
-        status = "new" if j.company in seen or fresh(j.posted_at, now()) else "backlog"
+        status = "new" if board in seen or fresh(j.posted_at, now()) else "backlog"
         if not j.description.strip():
             # the description request failed: can't judge it, so not a match. Hidden from every
             # tab and retried next run (known_jobs skips unverified rows)

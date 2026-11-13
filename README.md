@@ -58,13 +58,26 @@ for jobs that pass the title + location filter.
 python -m recon.discover            # verify boards, append working ones as Tier 3
 python -m recon.discover --dry-run  # report only
 
-Sources: application links in the SimplifyJobs New-Grad-Positions and Summer2026-Internships
-READMEs, and Job Seek's board list (Greenhouse, Lever, Ashby and Workday boards only).
+Sources: job links in vanshb03/New-Grad-2027 and Job Seek's board list (Greenhouse, Lever, Ashby
+and Workday boards only).
+python -m recon.discover --jobright  # which job system each company on Jobright's new-grad list uses
+
+## Job lists
+The Tier 1-2 lane also reads [vanshb03/New-Grad-2027](https://github.com/vanshb03/New-Grad-2027)
+(recon/sources/listings.py): jobs from companies we can't scan directly. Each row's link is
+resolved to the real posting; Greenhouse/Lever/Ashby/Workday postings are read through their APIs,
+anything else is judged on its page or on the list's title, company and location ("from list").
+Only lists whose license allows reuse are read: SimplifyJobs/New-Grad-Positions and
+speedyapply/2027-SWE-College-Jobs have no license, so Recon doesn't use them.
 A company's first run is saved as backlog, not shown as new.
 
 ## Credits
 Company board data from [Job Seek](https://github.com/colophon-group/jobseek)
 (`apps/crawler/data/boards.csv`, MIT License, Copyright (c) 2025 Viktor Shcherbakov).
+New-grad job listings from [vanshb03/New-Grad-2027](https://github.com/vanshb03/New-Grad-2027)
+(`.github/scripts/listings.json`, MIT License, Copyright (c) 2025 Vansh Bataviya) and contributors.
+Company names (only) from [jobright-ai/2026-Software-Engineer-New-Grad](https://github.com/jobright-ai/2026-Software-Engineer-New-Grad),
+to find which companies Recon should watch; Recon doesn't use its job links.
 
 ## Referral contacts (private)
 Optional, gitignored: create config/referrals.csv with columns company,contact

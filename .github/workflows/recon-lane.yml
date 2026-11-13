@@ -13,6 +13,10 @@ on:
       recheck:
         type: boolean
         default: false
+      browser:
+        # Playwright + Chromium: new job-list jobs on company sites are opened before they enter New
+        type: boolean
+        default: false
     secrets:
       DATABASE_URL:
         required: true
@@ -36,6 +40,9 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Browser for the open check
+        if: inputs.browser
+        run: pip install playwright==1.65.1 && python -m playwright install --with-deps chromium
       - name: Run Recon (counts only; logs are public)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

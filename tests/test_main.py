@@ -4,7 +4,7 @@ from collections import Counter
 
 from recon import main
 from recon.models import Job
-from recon.store import Store
+from recon.store import Store, now
 
 
 def job(n, description="Build backend services in Python and SQL. 1+ years of experience."):
@@ -282,3 +282,24 @@ def test_a_new_job_that_is_already_gone_never_shows_in_new(tmp_path, monkeypatch
     assert [j.job_id for j, _, _ in shown] == ["greenhouse:co:2"]
     assert closed(tmp_path)["greenhouse:co:3"] == 1
     assert "Not shown in New (gone when checked): 1" in capsys.readouterr().out
+
+
+def test_job_list_rows_are_saved_once_and_marked_from_list(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    google = Job("list:id-3", "Google", "Software Engineer, Early Career", "Mountain View, CA",
+                 "https://www.google.com/about/careers/x", now()[:10], "list", 2,
+                 "Software Engineer, Early Career at Google, Mountain View, CA.", source_ids="id-3", via="list")
+    seen = {}
+    monkeypatch.setattr(main, "load_companies", lambda: [
+        {"company": "New-Grad-2027 list", "ats": "listings", "slug": "vanshb03/New-Grad-2027", "tier": "2", "referral": ""}])
+
+    async def fetch(client, sems, company, deadline, outcome):
+        seen["list_ids"] = set(company["list_ids"])
+        return [google]
+    monkeypatch.setattr(main, "fetch_company", fetch)
+    monkeypatch.setattr(main, "Store", lambda url=None: Store(tmp_path / "t.db", url))
+    asyncio.run(main.run())
+    asyncio.run(main.run())
+    assert seen["list_ids"] == {"id-3"}                                  # second run: not resolved again
+    row = Store(tmp_path / "t.db").execute("SELECT via, status, decision FROM jobs").fetchone()
+    assert row == ("list", "new", "match")                               # posted recently: New on the first run
