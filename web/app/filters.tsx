@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState, useSyncExternalStore, useTransition } from "react";
-import { DAYS, MAX_YEARS, MIN_FILINGS, ROLES, SORTS, TIERS, type Filters, parseFilters, toQuery } from "@/lib/filters";
+import { DAYS, LEVELS, MAX_YEARS, MIN_FILINGS, ROLES, SORTS, TIERS, type Filters, parseFilters, toQuery } from "@/lib/filters";
 
 type Props = { tab: string; filters: Filters; companies: string[]; active: number };
 
@@ -99,6 +99,15 @@ function FilterForm({ tab, filters, companies, active, open, setOpen }: Props & 
 
       {open && (
         <div className="grid gap-5 border-t border-zinc-200 p-4 dark:border-zinc-800 sm:grid-cols-2">
+          <Field label="Level">
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(LEVELS).map(([k, label]) => (
+                <Chip key={k} name="level" value={k} checked={filters.levels.includes(k as keyof typeof LEVELS)}>
+                  {label}
+                </Chip>
+              ))}
+            </div>
+          </Field>
           <Field label="Role type" wide>
             <div className="flex flex-wrap gap-1.5">
               {Object.entries(ROLES).map(([k, label]) => (

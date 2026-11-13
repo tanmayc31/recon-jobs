@@ -17,7 +17,7 @@ function db() {
   return globalForDb.sql;
 }
 
-export const TABS = ["new", "backlog", "later", "applied", "skipped"] as const;
+export const TABS = ["best", "new", "backlog", "later", "applied", "skipped"] as const;
 export type Tab = (typeof TABS)[number];
 
 export const STATUSES = ["new", "backlog", "later", "applied", "skipped"] as const;
@@ -31,6 +31,7 @@ export type JobRow = {
   url: string;
   tier: number | null;
   posted_at: string | null; // ISO date, or Workday text "Posted 30+ Days Ago"
+  posted_on: string | null; // posted_at as an ISO date (Workday's relative text resolved)
   site_updated_at: string | null; // site's last edit (Greenhouse only)
   first_seen_at: string;
   decision: string;
@@ -47,6 +48,7 @@ export type JobRow = {
   ai_max_years: number | null; // most experience the posting allows (null: no cap)
   openings: number | null; // Amazon: identical title + location postings collapsed into this job
   role_type: string | null;
+  level: string | null; // entry / ii / unknown (recon/roles.py)
   filings: number | null; // H-1B software filings (sponsors table), null if not a known sponsor
   my_rating: Rating | null; // your 👍 / 👎
   closed_at: string | null; // gone from the company's board
@@ -56,8 +58,15 @@ export const RATINGS = [1, -1] as const; // 👍, 👎
 export type Rating = (typeof RATINGS)[number];
 
 
+// Best bets: open, entry level or SWE II with at most 2 years required, an H-1B sponsor, fit 70+
+const MAX_BEST_YEARS = 2;
+const MIN_BEST_FIT = 70;
+
 function tabWhere(sql: postgres.Sql, tab: Tab) {
   return {
+    best: sql`j.decision = 'match' AND j.status IN ('new', 'backlog') AND j.closed_at IS NULL
+      AND j.level IN ('entry', 'ii') AND COALESCE(j.min_years, j.ai_years, 0) <= ${MAX_BEST_YEARS}
+      AND sp.filings > 0 AND j.fit_score >= ${MIN_BEST_FIT}`,
     // closed jobs (gone from the board, recon/store.py track_listings) leave New, Backlog and
     // Later; Applied keeps them with a "closed" badge
     new: sql`j.decision = 'match' AND j.status = 'new' AND j.closed_at IS NULL`,
@@ -80,6 +89,7 @@ function filterWhere(sql: postgres.Sql, f: Filters) {
   if (f.minFit && f.hideUnscored) where.push(sql`j.fit_score >= ${f.minFit}`);
   else if (f.minFit) where.push(sql`(j.fit_score >= ${f.minFit} OR j.fit_score IS NULL)`);
   else if (f.hideUnscored) where.push(sql`j.fit_score IS NOT NULL`);
+  if (f.levels.length) where.push(sql`j.level IN ${sql(f.levels)}`);
   if (f.companies.length) where.push(sql`j.company IN ${sql(f.companies)}`);
   if (f.excluded.length) where.push(sql`j.company NOT IN ${sql(f.excluded)}`);
   if (f.location) {
@@ -119,10 +129,10 @@ export async function listJobs(tab: Tab, f: Filters, limit: number): Promise<{ j
   const where = sql`${tabWhere(sql, tab)} AND ${filterWhere(sql, f)}`;
   const [jobs, [count]] = await Promise.all([
     sql<JobRow[]>`
-      SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.site_updated_at,
+      SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.posted_on, j.site_updated_at,
              j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_skills,
              j.ai_level, j.ai_domain, j.ai_why, j.ai_missing, j.ai_resume, j.ai_max_years, j.openings,
-             j.role_type, j.my_rating, j.closed_at, sp.filings
+             j.role_type, j.level, j.my_rating, j.closed_at, sp.filings
       FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
       WHERE ${where}
       ORDER BY ${orderBy(sql, f)}
@@ -141,19 +151,30 @@ export async function listCompanies(): Promise<string[]> {
 }
 
 export async function tabCounts(): Promise<Record<Tab, number>> {
-  const [row] = await db()`
-    SELECT
-      COUNT(*) FILTER (WHERE decision = 'match' AND status = 'new' AND closed_at IS NULL)::int AS new,
-      COUNT(*) FILTER (WHERE decision = 'match' AND status = 'backlog' AND closed_at IS NULL)::int AS backlog,
-      COUNT(*) FILTER (WHERE status = 'later' AND closed_at IS NULL)::int AS later,
-      COUNT(*) FILTER (WHERE status = 'applied')::int AS applied,
-      COUNT(*) FILTER (WHERE status = 'skipped' OR (decision = 'skip' AND status IN ('new', 'backlog')))::int AS skipped
-    FROM jobs`;
+  const sql = db();
+  // same conditions as the tabs themselves
+  const counts = TABS.map((t) => sql`COUNT(*) FILTER (WHERE ${tabWhere(sql, t)})::int AS ${sql(t)}`);
+  const [row] = await sql`
+    SELECT ${counts.flatMap((c, i) => (i ? [sql`, `, c] : [c])).reduce((a, b) => sql`${a}${b}`)}
+    FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company`;
   return row as Record<Tab, number>;
 }
 
 export async function updateStatus(jobId: string, status: Status) {
   await db()`UPDATE jobs SET status = ${status} WHERE job_id = ${jobId}`;
+}
+
+/** For "Gone?": what the site's API needs, read from the database (not from the form). */
+export async function jobForCheck(jobId: string) {
+  const [row] = await db()<{ job_id: string; source: string; url: string; source_ids: string | null }[]>`
+    SELECT job_id, source, url, source_ids FROM jobs WHERE job_id = ${jobId}`;
+  return row ?? null;
+}
+
+/** The site says it's gone: same as recon/store.py close_jobs. */
+export async function closeJob(jobId: string) {
+  const at = new Date().toISOString().slice(0, 19) + "+00:00";
+  await db()`UPDATE jobs SET closed_at = ${at}, closed_reason = 'api' WHERE job_id = ${jobId} AND closed_at IS NULL`;
 }
 
 /** null clears the rating. rated_at uses the poller's format (UTC ISO, seconds). */

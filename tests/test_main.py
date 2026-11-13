@@ -179,8 +179,8 @@ def test_connection_not_held_during_fetch(tmp_path, monkeypatch):
 
 
 def test_first_run_jobs_posted_in_the_last_3_days_are_new(tmp_path, monkeypatch):
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()   # fresh() compares in UTC
     fresh, old, workday, undated = job(1), job(2), job(3), job(4)
     fresh.posted_at = (today - timedelta(days=3)).isoformat() + "T15:04:11Z"   # Lever/Ashby ISO date
     old.posted_at = (today - timedelta(days=4)).isoformat()
@@ -268,3 +268,17 @@ def test_recheck_moves_matches_that_fail_new_title_or_location_rules_to_skipped(
     assert rows["greenhouse:co:7"] == ("skip", "intern/co-op", "new")
     assert rows["greenhouse:co:8"] == ("skip", "non-US location", "backlog")
     assert rows["greenhouse:co:1"][0] == "match"
+
+
+def test_a_new_job_that_is_already_gone_never_shows_in_new(tmp_path, monkeypatch, capsys):
+    from recon import linkcheck
+    monkeypatch.delenv("CI", raising=False)
+    run_once(tmp_path, monkeypatch, [job(1)])                         # first run: backlog
+
+    async def check_open(jobs, transport=None):
+        return [(j, j["job_id"] != "greenhouse:co:3") for j in jobs]  # job 3: API says gone
+    monkeypatch.setattr(linkcheck, "check_open", check_open)
+    shown = run_once(tmp_path, monkeypatch, [job(1), job(2), job(3)])
+    assert [j.job_id for j, _, _ in shown] == ["greenhouse:co:2"]
+    assert closed(tmp_path)["greenhouse:co:3"] == 1
+    assert "Not shown in New (gone when checked): 1" in capsys.readouterr().out

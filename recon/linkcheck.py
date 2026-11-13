@@ -1,32 +1,32 @@
-"""Is a saved job still open, and does its link open a real job page?
+"""Is a saved job still open, and does its Apply link open a real job page?
 
-The site's own API decides whether the job is open: Workday's public page always answers 200
-and only then shows "page doesn't exist" in the browser. The page check follows the link: a
-404, or a redirect to a generic careers page (the job's ID gone from the URL), is a broken link.
-Company career sites that block scripts (403) can't be page-checked; the API still decides.
+Open or gone is decided by the site's own API (is_open). HTTP status can't tell: Workday answers
+200 for a taken-down job and only then shows "The page you are looking for doesn't exist" in the
+browser. Ashby's API kept listing jobs for boards whose job pages are switched off.
 
-    python -m recon.linkcheck                 # 20 random open Workday matches + 5 each from the others
-    python -m recon.linkcheck --close-unseen  # weekly: close Workday jobs gone from the detail API
+Whether a link opens a real job page is decided from the page a browser renders (render): it
+must show the job's title and none of the "not found" / "no longer available" messages.
 
-Auto-close (store.track_listings) skips filtered or capped Workday boards, since a job missing
-from a partial listing may still be open. The weekly --close-unseen pass covers them: Workday
-jobs not seen for UNSEEN_DAYS are checked one by one, and confirmed-gone ones (403/404) closed.
+    python -m recon.linkcheck                 # 20 random open Workday matches + 5 from each other source
+    python -m recon.linkcheck --recheck-open  # daily: every job in New/Backlog/Later through its API;
+                                              # the gone ones are closed (Applied jobs aren't checked)
 """
 import argparse
 import asyncio
 import os
 import re
-from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from recon.env import load_env
 from recon.main import HEADERS, quiet
+from recon.sources import ashby
 from recon.store import Store
 
-DELAY = 0.5
-UNSEEN_DAYS = 3
+DELAY = 0.3
+PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2}   # per site, polite
 SAMPLE = {"workday": 20, "greenhouse": 5, "lever": 5, "ashby": 5, "amazon": 5}
+COLS = ["job_id", "source", "url", "source_ids", "company", "title"]
 WORKDAY = [  # public job URL -> parts of the detail API URL
     re.compile(r"https://(?P<tenant>[^./]+)\.(?P<wd>wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?"
                r"(?P<site>[^/]+)(?P<path>/job/.+)$"),
@@ -34,6 +34,11 @@ WORKDAY = [  # public job URL -> parts of the detail API URL
                r"(?P<tenant>[^/]+)/(?P<site>[^/]+)(?P<path>/job/.+)$"),
 ]
 GONE = {403, 404, 410}   # Workday answers 403 "permission denied" for a job taken down
+# rendered text of a dead job page (Workday, Ashby, Greenhouse, company sites)
+DEAD = re.compile(r"page you are looking for doesn.t exist|page (you requested )?(was )?not found|"
+                  r"no longer (available|accepting|open|active)|job (has been|is) (closed|filled|removed)|"
+                  r"position (has been|is) (closed|filled)|this job (posting )?(has )?expired|"
+                  r"couldn.t find (that|this|the) (job|page)", re.I)
 
 
 def workday_api(url: str) -> str | None:
@@ -45,14 +50,28 @@ def workday_api(url: str) -> str | None:
 
 
 def ids(job: dict) -> list[str]:
-    """The site's own ID(s) for the job, as they appear in its URL."""
+    """The site's own ID(s) for the job."""
     if job["source"] == "amazon":
         return (job.get("source_ids") or "").split(",")
     return [job["job_id"].split(":", 2)[2]]
 
 
+async def ashby_board(client: httpx.AsyncClient, slug: str) -> set[str] | None:
+    """Listed job IDs, or an empty set if the board's job pages are switched off (and the
+    company's own pages aren't known, see ashby.CAREERS). None if Ashby didn't answer."""
+    r = await client.get(ashby.URL.format(slug=slug))
+    if r.status_code != 200:
+        return None
+    listed = {j["id"] for j in r.json().get("jobs", []) if j.get("isListed") is not False}
+    if slug not in ashby.CAREERS:
+        page = await client.get(ashby.BOARD.format(slug=slug))
+        if page.status_code == 404:   # jobs.ashbyhq.com/<slug> itself is gone: no job page opens
+            return set()
+    return listed
+
+
 async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | None:
-    """True open, False gone, None couldn't tell."""
+    """True open, False gone, None couldn't tell. boards: per-run cache of Ashby boards."""
     source, slug = job["source"], job["job_id"].split(":")[1]
     if source == "workday":
         api = workday_api(job["url"])
@@ -67,10 +86,9 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
         return True if r.status_code == 200 else False if r.status_code == 404 else None
     if source == "ashby":   # no per-job endpoint: is it on the board?
         if slug not in boards:
-            r = await client.get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}")
-            boards[slug] = {j["id"] for j in r.json().get("jobs", []) if j.get("isListed") is not False} \
-                if r.status_code == 200 else None
-        return None if boards[slug] is None else ids(job)[0] in boards[slug]
+            boards[slug] = asyncio.ensure_future(ashby_board(client, slug))   # one fetch per board
+        listed = await boards[slug]
+        return None if listed is None else ids(job)[0] in listed
     if source == "amazon":  # collapsed: open while any of its requisitions is
         for i in ids(job):
             r = await client.get(f"https://www.amazon.jobs/en/jobs/{i}")
@@ -81,82 +99,104 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
     return None
 
 
-async def page(client: httpx.AsyncClient, job: dict) -> tuple[int, str]:
-    """(status, verdict) for the saved link: 'ok', 'broken', or 'blocked' (403 from a company site)."""
-    r = await client.get(job["url"])
-    if r.status_code == 403 and job["source"] != "workday":
-        return 403, "blocked"
-    kept = any(i and i in str(r.url) for i in ids(job))
-    return r.status_code, "ok" if r.status_code == 200 and kept else "broken"
-
-
-async def check(jobs: list[dict], transport=None) -> list[dict]:
-    boards, out = {}, []
+async def check_open(jobs: list[dict], transport=None) -> list[tuple[dict, bool | None]]:
+    """is_open for many jobs: a few at a time per site."""
+    sems, boards = {s: asyncio.Semaphore(n) for s, n in PARALLEL.items()}, {}
     async with httpx.AsyncClient(timeout=30, headers=HEADERS, follow_redirects=True, transport=transport) as client:
-        for job in jobs:
-            try:
-                status, verdict = await page(client, job)
-                out.append(dict(job, open=await is_open(client, job, boards), status=status, page=verdict))
-            except httpx.HTTPError as e:
-                out.append(dict(job, open=None, status=0, page=type(e).__name__))
-            await asyncio.sleep(DELAY)
-    return out
+        async def one(job):
+            async with sems.get(job["source"], sems["lever"]):
+                try:
+                    return job, await is_open(client, job, boards)
+                except (httpx.HTTPError, ValueError):
+                    return job, None
+                finally:
+                    await asyncio.sleep(DELAY)
+        return await asyncio.gather(*(one(j) for j in jobs))
 
 
-def sample(store: Store) -> list[dict]:
-    cols = ["job_id", "source", "url", "source_ids", "company", "title"]
-    jobs = []
-    for source, n in SAMPLE.items():
-        jobs += [dict(zip(cols, r)) for r in store.execute(
-            f"SELECT {', '.join(cols)} FROM jobs WHERE source = ? AND decision = 'match' AND closed_at IS NULL"
-            " ORDER BY RANDOM() LIMIT ?", (source, n)).fetchall()]
-    return jobs
-
-
-def unseen(store: Store, days: int = UNSEEN_DAYS) -> list[dict]:
-    """Open Workday jobs you'd see (matches, Later, Applied) not on their board for `days`."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
-    cols = ["job_id", "source", "url", "source_ids", "company", "title"]
-    return [dict(zip(cols, r)) for r in store.execute(
-        f"SELECT {', '.join(cols)} FROM jobs WHERE source = 'workday' AND closed_at IS NULL"
-        " AND (decision = 'match' OR status IN ('later', 'applied')) AND last_seen_at < ?", (cutoff,)).fetchall()]
-
-
-async def close_unseen(transport=None) -> tuple[int, int]:
-    """(checked, closed). Applied jobs close too: the dashboard keeps them in Applied with a badge."""
+async def recheck_open(transport=None) -> tuple[int, int]:
+    """Daily: every job in New, Backlog and Later through its site's API; close the gone ones.
+    Returns (checked, closed)."""
     store = Store(url=os.environ.get("DATABASE_URL"))
-    jobs = unseen(store)
+    jobs = [dict(zip(COLS, r)) for r in store.execute(
+        f"SELECT {', '.join(COLS)} FROM jobs WHERE closed_at IS NULL"
+        " AND ((decision = 'match' AND status IN ('new', 'backlog')) OR status = 'later')").fetchall()]
     store.close()
-    results = await check(jobs, transport)
-    gone = [r["job_id"] for r in results if r["open"] is False]
+    results = await check_open(jobs, transport)
+    gone = [job["job_id"] for job, ok in results if ok is False]
     store = Store(url=os.environ.get("DATABASE_URL"))
     store.close_jobs(gone)
     store.commit()
     store.close()
-    print(f"Close check: {len(jobs)} Workday jobs unseen for {UNSEEN_DAYS}+ days, {len(gone)} confirmed gone"
-          f" and closed, {sum(1 for r in results if r['open'] is None)} couldn't be checked")
+    print(f"Open check: {len(jobs)} jobs in New/Backlog/Later, {len(gone)} gone and closed,"
+          f" {sum(1 for _, ok in results if ok is None)} couldn't be checked")
     return len(jobs), len(gone)
+
+
+def title_seen(title: str, text: str) -> bool:
+    """Most of the title's words appear on the page (sites trim or reformat titles)."""
+    words = [w for w in re.findall(r"[a-z0-9]+", title.lower()) if len(w) > 2]
+    page = set(re.findall(r"[a-z0-9]+", text.lower()))
+    return bool(words) and sum(w in page for w in words) / len(words) >= 0.6
+
+
+def verdict(title: str, text: str) -> str:
+    """'ok' (a real job page), 'dead' (not found / closed message) or 'no title' (some other page)."""
+    if DEAD.search(text[:3000]):
+        return "dead"
+    return "ok" if title_seen(title, text) else "no title"
+
+
+async def render(jobs: list[dict], wait: float = 6) -> list[dict]:
+    """Open each job's link in a real browser and judge the rendered page. Needs Playwright
+    (pip install playwright; python -m playwright install chromium): local only, not in CI."""
+    from playwright.async_api import async_playwright
+    out = []
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page()
+        for job in jobs:
+            try:
+                await page.goto(job["url"], wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(wait * 1000)
+                text = " ".join((await page.inner_text("body")).split())
+                out.append(dict(job, page=verdict(job["title"], text), final=page.url, text=text[:200]))
+            except Exception as e:
+                out.append(dict(job, page=type(e).__name__, final="", text=""))
+        await browser.close()
+    return out
+
+
+def sample(store: Store) -> list[dict]:
+    jobs = []
+    for source, n in SAMPLE.items():
+        jobs += [dict(zip(COLS, r)) for r in store.execute(
+            f"SELECT {', '.join(COLS)} FROM jobs WHERE source = ? AND decision = 'match' AND closed_at IS NULL"
+            " AND status IN ('new', 'backlog', 'later') ORDER BY RANDOM() LIMIT ?", (source, n)).fetchall()]
+    return jobs
 
 
 async def main():
     store = Store(url=os.environ.get("DATABASE_URL"))
     jobs = sample(store)
     store.close()
-    results = await check(jobs)
-    good = sum(1 for r in results if r["open"] and r["page"] in ("ok", "blocked"))
-    print(f"Link check: {good} of {len(results)} open with a working link")
+    opened = dict((j["job_id"], ok) for j, ok in await check_open(jobs))
+    results = await render(jobs)
+    good = sum(1 for r in results if r["page"] == "ok" and opened[r["job_id"]])
+    print(f"Link check: {good} of {len(results)} open, with a real job page in the browser")
     if quiet():
         return
     for r in results:
-        mark = "✅" if r["open"] and r["page"] in ("ok", "blocked") else "❌"
-        print(f"{mark} {r['source']:<10} open={r['open']!s:<5} page={r['status']} {r['page']:<7}"
-              f" {r['company']} | {r['title'][:50]}\n     {r['url']}")
+        mark = "✅" if r["page"] == "ok" and opened[r["job_id"]] else "❌"
+        print(f"{mark} {r['source']:<10} api_open={opened[r['job_id']]!s:<5} page={r['page']:<8}"
+              f" {r['company']} | {r['title'][:50]}\n     {r['url']}"
+              + ("" if r["page"] == "ok" else f"\n     rendered: {r['text'][:150]}"))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--close-unseen", action="store_true",
-                        help=f"close Workday jobs unseen for {UNSEEN_DAYS}+ days that the detail API says are gone")
+    parser.add_argument("--recheck-open", action="store_true",
+                        help="check every job in New/Backlog/Later through its site's API, close the gone ones")
     args = parser.parse_args()
     load_env()
-    asyncio.run(close_unseen() if args.close_unseen else main())
+    asyncio.run(recheck_open() if args.recheck_open else main())

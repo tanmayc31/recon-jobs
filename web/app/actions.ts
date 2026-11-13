@@ -4,7 +4,8 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { COOKIE, MAX_AGE, isCorrectPassword, isValidSession, sessionToken } from "@/lib/auth";
-import { RATINGS, type Rating, STATUSES, type Status, updateRating, updateStatus } from "@/lib/db";
+import { RATINGS, type Rating, STATUSES, type Status, closeJob, jobForCheck, updateRating, updateStatus } from "@/lib/db";
+import { type Verdict, checkOpen } from "@/lib/gone";
 
 async function requireSession() {
   // Actions are public POST endpoints: check the cookie here too, not just in proxy.ts
@@ -29,6 +30,19 @@ export async function setRating(formData: FormData) {
   if (!jobId || (rating !== null && !RATINGS.includes(rating))) throw new Error("Bad request");
   await updateRating(jobId, rating);
   revalidatePath("/");
+}
+
+// "Gone?": ask the site right now. Gone closes the card (it leaves New/Backlog/Later).
+export async function checkGone(_prev: Verdict | null, formData: FormData): Promise<Verdict> {
+  await requireSession();
+  const job = await jobForCheck(String(formData.get("jobId") ?? ""));
+  if (!job) throw new Error("Bad request");
+  const verdict = await checkOpen(job);
+  if (verdict === "gone") {
+    await closeJob(job.job_id);
+    revalidatePath("/");
+  }
+  return verdict;
 }
 
 export async function login(_prev: string | null, formData: FormData): Promise<string | null> {

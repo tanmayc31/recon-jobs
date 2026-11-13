@@ -6,12 +6,13 @@ name: recon
 #   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
 #   3-workday  Tier 3 Workday                       every 6 h
 # Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
-# filter rules reach old jobs, then close-check closes gone jobs on big Workday boards.
+# filter rules reach old jobs. Daily open check (GitHub cron): gone jobs leave New/Backlog/Later.
 # AI judge: after each normal 1-2 run, scores up to 48 unjudged matches from any lane,
 # 6 per Gemini request.
 on:
   schedule:
     - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US
+    - cron: "0 10 * * *"     # daily open check: 10:00 UTC = early morning US
   workflow_dispatch:          # cron-job.org and the manual "Run workflow" button
     inputs:
       lane:
@@ -58,13 +59,12 @@ jobs:
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-  close-check:
-    # weekly, after the recheck lanes: auto-close skips filtered/capped Workday boards, so their
-    # jobs unseen for 3+ days are checked one by one against the Workday detail API
-    needs: [tier-1-2, tier-3-workday]
-    if: ${{ !cancelled() && github.event.schedule == '0 4 * * 1' }}
+  open-check:
+    # daily: every job in New, Backlog and Later is checked through its site's API (Workday detail,
+    # Greenhouse/Lever job, Ashby board, amazon.jobs page); the gone ones are closed
+    if: github.event.schedule == '0 10 * * *'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -72,11 +72,11 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Close gone Workday jobs (counts only; logs are public)
+      - name: Close gone jobs (counts only; logs are public)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           CI: "true"
-        run: python -m recon.linkcheck --close-unseen
+        run: python -m recon.linkcheck --recheck-open
 
   judge:
     needs: tier-1-2

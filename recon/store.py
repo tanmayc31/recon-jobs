@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from recon.models import Job
-from recon.roles import role_type
+from recon.roles import level, role_type
 
 DB = Path(__file__).parent.parent / "data" / "recon.db"
 DESC_CHARS = 8000   # stored description length (matches only)
@@ -40,11 +40,13 @@ CREATE TABLE IF NOT EXISTS jobs (
     openings      INTEGER DEFAULT 1,  -- Amazon: identical title + location postings in this job
     source_ids    TEXT,   -- Amazon: the site's job IDs behind it, comma-separated
     role_type     TEXT,   -- from the title (recon/roles.py): swe, backend, cloud, ...
+    level         TEXT,   -- entry / ii / unknown (recon/roles.py level: title, then AI, then years)
     posted_on     TEXT,   -- posted_at as an ISO date (Workday's "Posted 3 Days Ago" resolved)
     my_rating     INTEGER, -- your 👍 (1) / 👎 (-1) from the dashboard; null if unrated
     missed_runs   INTEGER DEFAULT 0, -- complete fetches of its company in a row without it
     closed_at     TEXT,   -- set after MISSES_TO_CLOSE misses; cleared if it reappears. status is
                           -- kept: hidden from New/Backlog/Later, a badge in Applied
+    closed_reason TEXT,   -- 'board' (gone from the listing) or 'api' (the site's API says gone)
     rated_at      TEXT,
     -- AI judge (recon/judge.py); ai_scored_at is NULL until judged
     fit_score     INTEGER, -- overall: weighted sum of the three rubric parts below
@@ -124,7 +126,8 @@ class Store:
         for name, kind in [("site_updated_at", "TEXT"), ("openings", "INTEGER DEFAULT 1"),
                            ("source_ids", "TEXT"), ("role_type", "TEXT"), ("posted_on", "TEXT"),
                            ("my_rating", "INTEGER"), ("rated_at", "TEXT"),
-                           ("missed_runs", "INTEGER DEFAULT 0"), ("closed_at", "TEXT")] + AI_COLUMNS:
+                           ("missed_runs", "INTEGER DEFAULT 0"), ("closed_at", "TEXT"),
+                           ("closed_reason", "TEXT"), ("level", "TEXT")] + AI_COLUMNS:
             self.add_column(name, kind)   # tables made before these existed
         self.backfill()
 
@@ -145,6 +148,22 @@ class Store:
                 "UPDATE jobs SET role_type=?, posted_on=COALESCE(posted_on, ?) WHERE job_id=?",
                 [(role_type(t), posted_on(p, seen or now()), jid) for jid, t, p, seen in rows])
             self.db.commit()
+        if self.execute("SELECT 1 FROM jobs WHERE level IS NULL LIMIT 1").fetchone():
+            self.refresh_levels()
+            self.db.commit()
+
+    def refresh_levels(self, job_ids: list[str] | None = None):
+        """Recompute level from the title, the AI's seniority and the required years. All rows,
+        or just job_ids (after saving or judging them)."""
+        sql = "SELECT job_id, title, min_years, ai_seniority, ai_years FROM jobs"
+        rows = []
+        if job_ids is None:
+            rows = self.execute(sql).fetchall()
+        for i in range(0, len(job_ids or []), 1000):
+            chunk = job_ids[i:i + 1000]
+            rows += self.execute(f"{sql} WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk)).fetchall()
+        self.executemany("UPDATE jobs SET level=? WHERE job_id=?",
+                         [(level(t, y, sen, ay), jid) for jid, t, y, sen, ay in rows])
 
     def replace_sponsors(self, rows: list[tuple[str, int, str]]):
         """(company, filings, employers): the whole table, from config/sponsors.csv."""
@@ -230,34 +249,38 @@ class Store:
               j.posted_at, t, t, d, r, y, j.updated_at, s, desc(j, d), j.openings, j.source_ids,
               role_type(j.title), posted_on(j.posted_at, t))
              for j, d, r, y, s in latest.values() if j.job_id not in vetoed])
+        self.refresh_levels(ids)
         return set(ids) - set(vetoed)
 
     def track_listings(self, listed: dict[str, set[str]]) -> tuple[int, int]:
         """listed: company -> every job_id on its board, from a complete fetch. Jobs missing
-        MISSES_TO_CLOSE times in a row are closed; a closed job that's listed again reopens.
-        Returns (closed, reopened)."""
+        MISSES_TO_CLOSE times in a row are closed; a job closed that way reopens when it's listed
+        again. A job the site's API called gone stays closed: Ashby lists jobs whose pages are
+        switched off. Returns (closed, reopened)."""
         t, names, updates, closed, reopened = now(), list(listed), [], 0, 0
         for i in range(0, len(names), 500):
             chunk = names[i:i + 500]
-            for job_id, company, missed, closed_at in self.execute(
-                    "SELECT job_id, company, COALESCE(missed_runs, 0), closed_at FROM jobs"
+            for job_id, company, missed, closed_at, why in self.execute(
+                    "SELECT job_id, company, COALESCE(missed_runs, 0), closed_at, closed_reason FROM jobs"
                     f" WHERE company IN ({','.join('?' * len(chunk))})", tuple(chunk)).fetchall():
                 if job_id in listed[company]:
+                    if why == "api":
+                        continue
                     if missed or closed_at:
-                        updates.append((0, None, job_id))
+                        updates.append((0, None, None, job_id))
                         reopened += bool(closed_at)
                 elif not closed_at:
                     missed += 1
                     shut = missed >= MISSES_TO_CLOSE
-                    updates.append((missed, t if shut else None, job_id))
+                    updates.append((missed, t if shut else None, "board" if shut else None, job_id))
                     closed += shut
-        self.executemany("UPDATE jobs SET missed_runs=?, closed_at=? WHERE job_id=?", updates)
+        self.executemany("UPDATE jobs SET missed_runs=?, closed_at=?, closed_reason=? WHERE job_id=?", updates)
         return closed, reopened
 
     def close_jobs(self, job_ids: list[str]):
-        """Close jobs confirmed gone some other way (the link check)."""
-        self.executemany("UPDATE jobs SET missed_runs=?, closed_at=? WHERE job_id=? AND closed_at IS NULL",
-                         [(MISSES_TO_CLOSE, now(), i) for i in job_ids])
+        """Close jobs the site's API says are gone (recon/linkcheck.py)."""
+        self.executemany("UPDATE jobs SET closed_at=?, closed_reason='api' WHERE job_id=? AND closed_at IS NULL",
+                         [(now(), i) for i in job_ids])
 
     def undescribed(self) -> dict[str, str]:
         """job_id -> company for matches saved without a description (recon/backfill.py)."""
@@ -294,6 +317,7 @@ class Store:
             [(a["fit_score"], a["skills_match"], a["level_fit"], a["domain_fit"], a["why"],
               ", ".join(a["missing_skills"]), a["resume"], a["seniority"], a["sponsorship"], a["required_years"], a["max_years_allowed"], skip, t, "skip" if skip else "match", skip, job_id)
              for job_id, a, skip in results])
+        self.refresh_levels([job_id for job_id, _, _ in results])
 
     def commit(self):
         self.db.commit()

@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { logout, setRating, setStatus } from "./actions";
 import { FilterPanel } from "./filters";
+import { GoneButton } from "./gone-button";
 import { StatusButton } from "./status-button";
 import { ago, posted, updated } from "@/lib/dates";
 import { TABS, type JobRow, type Status, type Tab, listCompanies, listJobs, tabCounts } from "@/lib/db";
-import { MAX_LIMIT, PAGE_SIZE, ROLES, type Role, activeCount, parseFilters, parseLimit, toQuery } from "@/lib/filters";
+import { DEFAULT_TAB, MAX_LIMIT, PAGE_SIZE, ROLES, type Role, activeCount, parseFilters, parseLimit, toQuery } from "@/lib/filters";
 
 const LABELS: Record<Tab, string> = {
+  best: "Best bets",
   new: "New",
   backlog: "Backlog",
   later: "Later",
@@ -25,7 +27,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   for (const [k, v] of Object.entries(await searchParams)) {
     for (const value of Array.isArray(v) ? v : v === undefined ? [] : [v]) params.append(k, value);
   }
-  const tab: Tab = TABS.includes(params.get("tab") as Tab) ? (params.get("tab") as Tab) : "new";
+  const tab: Tab = TABS.includes(params.get("tab") as Tab) ? (params.get("tab") as Tab) : DEFAULT_TAB;
   const filters = parseFilters(params, tab);
   const limit = parseLimit(params.get("limit")); // not a filter: changing a filter starts over at one page
   const [{ jobs, matching }, counts, companies] = await Promise.all([
@@ -73,7 +75,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
           {matching > limit && ` (first ${limit.toLocaleString()} listed)`}
         </p>
         {active > 0 && (
-          <Link href={tab === "new" ? "/" : `/?tab=${tab}`} className="font-medium text-zinc-800 underline dark:text-zinc-200">
+          <Link href={tab === DEFAULT_TAB ? "/" : `/?tab=${tab}`} className="font-medium text-zinc-800 underline dark:text-zinc-200">
             Reset filters
           </Link>
         )}
@@ -108,7 +110,8 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
   const edited = updated(job.posted_at, job.site_updated_at);
   // Tab names match statuses: offer every move except "stay here". An auto-skipped job
   // set back to "new" would still sit in Skipped, and backlog isn't news, so no "Back to New".
-  const moves = MOVES.filter(([s]) => s !== tab && !(s === "new" && (autoSkipped || tab === "backlog")));
+  // Best bets mixes New and Backlog: no "Back to New" there either.
+  const moves = MOVES.filter(([s]) => s !== tab && !(s === "new" && (autoSkipped || tab === "backlog" || tab === "best")));
 
   return (
     <li className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -135,7 +138,7 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
-        {job.posted_at && <span className="text-zinc-500">{posted(job.posted_at)} ·</span>}
+        {job.posted_on && <span className="text-zinc-500">{posted(job.posted_on, job.posted_at)} ·</span>}
         {edited && <span className="text-zinc-500">{edited} ·</span>}
         <span className="text-zinc-500">found {ago(job.first_seen_at)}</span>
         {job.closed_at && (
@@ -144,6 +147,11 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
             className="rounded-full bg-zinc-800 px-2 py-0.5 font-semibold text-white dark:bg-zinc-200 dark:text-zinc-900"
           >
             closed
+          </span>
+        )}
+        {(job.level === "entry" || job.level === "ii") && (
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+            {job.level === "entry" ? "Entry level" : "Level II"}
           </span>
         )}
         {job.role_type && job.role_type !== "other" && (
@@ -219,6 +227,7 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
           Apply ↗
         </a>
         <Rate job={job} />
+        {!job.closed_at && <GoneButton jobId={job.job_id} />}
         {moves.map(([status, label]) => (
           <form key={status} action={setStatus}>
             <input type="hidden" name="jobId" value={job.job_id} />

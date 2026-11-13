@@ -68,3 +68,12 @@ def test_greenhouse_skips_details_for_known_jobs():
     known = {"greenhouse:acme:8220757": ("match", None, None)}
     jobs = run(greenhouse.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), dict(CO, known=known)))
     assert calls == ["/v1/boards/acme/jobs"] and len(jobs) == 1   # listed, but no detail request
+
+
+def test_ashby_switched_off_board_links_to_the_company_page():
+    # real: jobs.ashbyhq.com/cursor is a 404; the job lives at cursor.com/careers/<title>
+    from recon.sources import ashby
+    j = {"id": "164e27cd-289e-4bcd-8aaf-5280e75c5ed6", "title": "Software Engineer, New Grad 2027",
+         "jobUrl": "https://jobs.ashbyhq.com/cursor/164e27cd-289e-4bcd-8aaf-5280e75c5ed6"}
+    assert ashby.job_url("cursor", j) == "https://cursor.com/careers/software-engineer-new-grad-2027"
+    assert ashby.job_url("notion", dict(j, jobUrl="https://jobs.ashbyhq.com/notion/x")) == "https://jobs.ashbyhq.com/notion/x"

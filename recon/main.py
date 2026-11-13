@@ -131,6 +131,18 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
             backlog += 1
         else:
             new_matches.append((j, flags, yrs))
+    # only open jobs enter New: each is checked through its site's API (a listed job can still be
+    # unopenable, e.g. an Ashby board whose job pages are switched off). Gone ones close at once.
+    if new_matches:
+        from recon import linkcheck   # imports main
+        checked = await linkcheck.check_open([{"job_id": j.job_id, "source": j.source, "url": j.url,
+                                               "source_ids": j.source_ids, "company": j.company, "title": j.title}
+                                              for j, _, _ in new_matches])
+        gone = {job["job_id"] for job, ok in checked if ok is False}
+        store.close_jobs(sorted(gone))
+        new_matches = [m for m in new_matches if m[0].job_id not in gone]
+        if gone:
+            print(f"Not shown in New (gone when checked): {len(gone)}")
     # dates only, never the verdict: an overlapping --recheck run may have just updated it
     store.touch_many(still_listed)
     # only complete listings: a failed or cut-off fetch (company["partial"]) or an empty board

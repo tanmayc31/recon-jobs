@@ -8,10 +8,19 @@ export function ago(iso: string, now = Date.now()): string {
   return `${Math.round(h / 24)} days ago`;
 }
 
-// Workday gives text ("Posted 30+ Days Ago"); other sources give a date
-export function posted(value: string, now = Date.now()): string {
-  if (/^posted\b/i.test(value)) return value.toLowerCase();
-  return Number.isNaN(Date.parse(value)) ? `posted ${value}` : `posted ${ago(value, now)}`;
+// posted_on (the poller resolves Workday's "Posted 3 Days Ago" against the day it read it):
+// "posted Nov 12". Workday's "Posted 30+ Days Ago" is only an upper bound: "posted before Oct 13".
+export function posted(postedOn: string, postedAt: string | null, now = Date.now()): string {
+  const d = new Date(`${postedOn.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "";
+  const sameYear = d.getUTCFullYear() === new Date(now).getUTCFullYear();
+  const day = d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return /30\+/.test(postedAt ?? "") ? `posted before ${day}` : `posted ${day}`;
 }
 
 // "updated X ago" only when the site's edit is more than 2 days after the posted date

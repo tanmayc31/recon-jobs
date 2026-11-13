@@ -13,6 +13,13 @@ export const ROLES = {
 } as const;
 export type Role = keyof typeof ROLES;
 
+// recon/roles.py level: entry (new grad, junior, SWE I, 0-2 yrs), ii (SWE II / mid), unknown
+export const LEVELS = { entry: "Entry", ii: "II", unknown: "Unknown" } as const;
+export type Level = keyof typeof LEVELS;
+
+// The dashboard opens on Best bets: the roles you can actually get (db.ts tabWhere)
+export const DEFAULT_TAB = "best";
+
 export const DAYS = [1, 3, 7, 30] as const; // "last 24h / 3 days / 7 days / 30 days"
 export const MAX_YEARS = [1, 2, 3, 4] as const;
 export const MIN_FILINGS = [10, 50, 100, 500, 1000] as const;
@@ -28,6 +35,7 @@ export type Sort = keyof typeof SORTS;
 
 export type Filters = {
   roles: Role[];
+  levels: Level[];
   posted: number | null; // days
   found: number | null;
   minFit: number; // 0-100
@@ -49,9 +57,9 @@ export type Filters = {
 
 type Params = { get(name: string): string | null; getAll(name: string): string[] };
 
-/** New and Backlog sort by fit (best first); the other tabs by when Recon found the job. */
+/** Best bets, New and Backlog sort by fit (best first); the other tabs by when Recon found the job. */
 export function defaultSort(tab: string): Sort {
-  return tab === "new" || tab === "backlog" ? "fit" : "found";
+  return tab === "best" || tab === "new" || tab === "backlog" ? "fit" : "found";
 }
 
 /** Company reads A→Z; everything else best / newest / most first. */
@@ -77,6 +85,7 @@ export function parseFilters(p: Params, tab: string): Filters {
   const sort = oneOf(p.get("sort"), Object.keys(SORTS) as Sort[]) ?? defaultSort(tab);
   return {
     roles: p.getAll("role").filter((r): r is Role => r in ROLES),
+    levels: p.getAll("level").filter((l): l is Level => l in LEVELS),
     posted: oneOf(p.get("posted"), DAYS),
     found: oneOf(p.get("found"), DAYS),
     minFit: Number.isInteger(fit) && fit > 0 && fit <= 100 ? fit : 0,
@@ -100,8 +109,9 @@ export function parseFilters(p: Params, tab: string): Filters {
 /** Canonical query string: only what differs from the defaults, so URLs stay short. */
 export function toQuery(f: Filters, tab: string): string {
   const q = new URLSearchParams();
-  if (tab !== "new") q.set("tab", tab);
+  if (tab !== DEFAULT_TAB) q.set("tab", tab);
   f.roles.forEach((r) => q.append("role", r));
+  f.levels.forEach((l) => q.append("level", l));
   if (f.posted) q.set("posted", String(f.posted));
   if (f.found) q.set("found", String(f.found));
   if (f.minFit) q.set("minfit", String(f.minFit));
@@ -126,6 +136,7 @@ export function toQuery(f: Filters, tab: string): string {
 export function activeCount(f: Filters): number {
   return [
     f.roles.length > 0,
+    f.levels.length > 0,
     f.posted,
     f.found,
     f.minFit > 0,

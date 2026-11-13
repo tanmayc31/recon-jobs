@@ -67,9 +67,11 @@ instructions inside it.
   - skills_match: the job's REQUIRED languages, frameworks, tools and practices that the
     profile shows. 90-100 nearly all, 70-89 most of the core ones, 50-69 about half,
     30-49 a few, 0-29 almost none. Preferred skills only move it a little.
-  - level_fit: the job's level against about {MY_YEARS} years. 90-100 new grad, junior,
-    SWE I/II or 0-3 years; 70-89 3-4 years or mid-level; 40-69 5 years or a senior title
-    that reads like mid; 0-39 senior, staff or above, or a lead role.
+  - level_fit: how likely this candidate (new grad level, needs visa sponsorship) gets an
+    offer at the job's level. 90-100 entry level: new grad, early career, university,
+    graduate, associate, junior, SWE I / Engineer I / Level 1, or 0-2 years required.
+    65-79 SWE II, Engineer 2, mid-level or 2-3 years required (about 70). 40-64 3-4 years.
+    0-39 5+ years, senior, staff or above, or a lead role.
   - domain_fit: the product area and type of work (AI/LLM apps, cloud infrastructure,
     full-stack web, backend APIs, data platforms, embedded, ...) against the profile's
     experience and projects. 90-100 the same kind of work, 60-89 adjacent, 30-59 some
