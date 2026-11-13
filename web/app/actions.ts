@@ -4,7 +4,19 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { COOKIE, MAX_AGE, isCorrectPassword, isValidSession, sessionToken } from "@/lib/auth";
-import { RATINGS, type Rating, STATUSES, type Status, closeJob, jobForCheck, updateRating, updateStatus } from "@/lib/db";
+import {
+  RATINGS,
+  type Rating,
+  STATUSES,
+  type Status,
+  closeJob,
+  jobForCheck,
+  keepAdded,
+  queueAdded,
+  updateRating,
+  updateStatus,
+} from "@/lib/db";
+import { dispatchAdd } from "@/lib/dispatch";
 import { type Verdict, checkOpen } from "@/lib/gone";
 
 async function requireSession() {
@@ -43,6 +55,31 @@ export async function checkGone(_prev: Verdict | null, formData: FormData): Prom
     revalidatePath("/");
   }
   return verdict;
+}
+
+// "Add job": queue the URL and start recon.add (it reads, filters and judges it)
+export async function addJob(_prev: string | null, formData: FormData): Promise<string> {
+  await requireSession();
+  const raw = String(formData.get("url") ?? "").trim();
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return "That isn't a link.";
+  }
+  if (!["http:", "https:"].includes(url.protocol)) return "That isn't a web link.";
+  await queueAdded(url.toString());
+  revalidatePath("/");
+  return (await dispatchAdd())
+    ? "Adding it: about a minute."
+    : "Queued: the next run picks it up (within 30 minutes).";
+}
+
+export async function keepJob(formData: FormData) {
+  await requireSession();
+  if (!(await keepAdded(String(formData.get("id") ?? "")))) throw new Error("Bad request");
+  await dispatchAdd(); // judge it now
+  revalidatePath("/");
 }
 
 export async function login(_prev: string | null, formData: FormData): Promise<string | null> {

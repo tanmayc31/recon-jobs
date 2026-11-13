@@ -18,7 +18,7 @@ on:
       lane:
         description: "What to check"
         type: choice
-        options: ["1-2", "3-other", "3-workday"]
+        options: ["1-2", "3-other", "3-workday", "add"]
         default: "1-2"
       recheck:
         description: "Re-judge known jobs (after changing filter rules)"
@@ -81,6 +81,33 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           CI: "true"
         run: python -m recon.linkcheck --recheck-open
+
+  add:
+    # jobs pasted into the dashboard's "Add job" box: the dashboard starts lane "add" right away;
+    # every 1-2 run also handles any still queued
+    if: ${{ inputs.lane == 'add' || (inputs.lane == '1-2' && !inputs.recheck) }}
+    concurrency:
+      group: recon-add
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Browser for company pages
+        if: inputs.lane == 'add'
+        run: pip install playwright==1.65.1 && python -m playwright install --with-deps chromium
+      - name: Add jobs (counts only; logs are public)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CANDIDATE_PROFILE: ${{ secrets.CANDIDATE_PROFILE }}
+          CI: "true"
+        run: python -m recon.add
 
   judge:
     needs: tier-1-2

@@ -4,6 +4,7 @@ SQLite locally by default; Postgres (e.g. Supabase) when given a DATABASE_URL.
 """
 import re
 import sqlite3
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -63,6 +64,15 @@ CREATE TABLE IF NOT EXISTS jobs (
     ai_max_years  INTEGER, -- most experience the posting allows (null: no cap)
     ai_skip       TEXT,   -- 'ai: <reason>' if the AI vetoed it; survives --recheck
     ai_scored_at  TEXT
+);
+""", """
+CREATE TABLE IF NOT EXISTS added (
+    id            TEXT PRIMARY KEY,
+    url           TEXT,               -- what you pasted in the dashboard's "Add job" box
+    added_at      TEXT,
+    state         TEXT DEFAULT 'queued',   -- queued / added / skipped / gone / needs link / failed / kept
+    message       TEXT,
+    job_id        TEXT                -- the job it became (recon/add.py)
 );
 """, """
 CREATE TABLE IF NOT EXISTS sponsors (
@@ -216,18 +226,23 @@ class Store:
     def upsert_many(self, rows: list[tuple[Job, str, str | None, int | None, str]]) -> set[str]:
         """Save (job, decision, reason, min_years, status) rows in two batches.
         Returns the job_ids seen for the first time. status only applies to new rows;
-        it never overwrites what the user chose. An AI veto (ai_skip) beats a rule match."""
+        it never overwrites what the user chose. An AI veto (ai_skip) beats a rule match, and a match
+        you added or kept yourself (via 'you') stays a match whatever the rules say later."""
         latest = {r[0].job_id: r for r in rows}   # a board can list the same job twice
         ids = list(latest)
-        vetoed = {}   # known job_id -> ai_skip (or None)
+        vetoed, yours = {}, set()   # known job_id -> ai_skip (or None); your own matches
         for i in range(0, len(ids), 1000):
             chunk = ids[i:i + 1000]
-            vetoed |= {r[0]: r[1] for r in self.execute(
-                f"SELECT job_id, ai_skip FROM jobs WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk))}
+            for job_id, skip, via, decision in self.execute(
+                    f"SELECT job_id, ai_skip, via, decision FROM jobs WHERE job_id IN ({','.join('?' * len(chunk))})",
+                    tuple(chunk)):
+                vetoed[job_id] = skip
+                if via == "you" and decision == "match":
+                    yours.add(job_id)
         t = now()
 
-        def desc(j, d):
-            return j.description[:DESC_CHARS] if d == "match" and j.description else None
+        def desc(j, d):   # matches only, and jobs you added (you may keep one the filters skip)
+            return j.description[:DESC_CHARS] if (d == "match" or j.via == "you") and j.description else None
 
         updates = []
         for j, d, r, y, _ in latest.values():
@@ -235,6 +250,8 @@ class Store:
                 continue
             if d == "match" and vetoed[j.job_id]:
                 d, r = "skip", vetoed[j.job_id]
+            elif d == "skip" and j.job_id in yours:
+                d, r = "match", None   # you chose to keep it
             updates.append((t, d, r, y, j.posted_at, j.updated_at, desc(j, d), j.openings, j.source_ids,
                             role_type(j.title), *[posted_on(j.posted_at, t)] * 2, j.via, j.job_id))
         self.executemany(
@@ -292,6 +309,17 @@ class Store:
         of one of these is skipped."""
         return {(c.lower(), t.lower(), (loc or "").lower()) for c, t, loc in self.execute(
             "SELECT company, title, location FROM jobs WHERE via IS NULL").fetchall()}
+
+    def queue_added(self, url: str):
+        """A URL to add (recon/add.py; the dashboard inserts the same row)."""
+        self.execute("INSERT INTO added (id, url, added_at, state) VALUES (?, ?, ?, 'queued')",
+                     (uuid.uuid4().hex, url, now()))
+
+    def queued_added(self) -> list[tuple[str, str]]:
+        return self.execute("SELECT id, url FROM added WHERE state = 'queued' ORDER BY added_at").fetchall()
+
+    def finish_added(self, row_id: str, state: str, message: str, job_id: str | None):
+        self.execute("UPDATE added SET state=?, message=?, job_id=? WHERE id=?", (state, message, job_id, row_id))
 
     def undescribed(self) -> dict[str, str]:
         """job_id -> company for matches saved without a description (recon/backfill.py)."""

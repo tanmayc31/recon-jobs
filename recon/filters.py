@@ -86,14 +86,15 @@ def location_status(loc: str) -> str:
 
 
 def classify(job: Job) -> tuple[bool, list[str]]:
-    """Returns (keep, flags). A dropped job's flags hold why: [title], [intern/co-op] or [non-US location]."""
+    """Returns (keep, flags). A dropped job's flags hold why: ["title: Sr"] (the word that dropped it),
+    ["intern/co-op"], ["non-US location"], or ["title"] (not an engineering role)."""
     t = job.title
     if not (ROLE.search(t) and ENG.search(t)):
         return False, ["title"]
     if STUDENT.search(t):
         return False, ["intern/co-op"]
-    if EXCLUDE.search(t):
-        return False, ["title"]
+    if m := EXCLUDE.search(t):
+        return False, [f"title: {m.group(0).strip()}"]
     if SECURITY_ONLY.search(t) and not re.search(r"software", t, re.I):
         return False, ["title"]
     loc = location_status(job.location)

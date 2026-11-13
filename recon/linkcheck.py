@@ -103,12 +103,13 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
             boards[slug] = asyncio.ensure_future(ashby_board(client, slug))   # one fetch per board
         listed = await boards[slug]
         return None if listed is None else ids(job)[0] in listed
-    if source == "list":    # from a job list, on a company site we can't ask: still listed, and the page loads
-        if "list" not in boards:
-            boards["list"] = asyncio.ensure_future(list_rows(client))
-        active = await boards["list"]
-        if active is not None and job.get("source_ids") not in active:
-            return False
+    if source in ("list", "you"):   # a company site we can't ask (from a job list, or added by you): the page loads
+        if source == "list":            # ... and the list still has it
+            if "list" not in boards:
+                boards["list"] = asyncio.ensure_future(list_rows(client))
+            active = await boards["list"]
+            if active is not None and job.get("source_ids") not in active:
+                return False
         r = await client.get(job["url"])
         return False if r.status_code in (404, 410) else True if r.status_code < 400 else None
     if source == "amazon":  # collapsed: open while any of its requisitions is
@@ -126,11 +127,11 @@ async def check_open(jobs: list[dict], transport=None) -> list[tuple[dict, bool 
     are also opened in a browser when Playwright is installed (render_open): Microsoft's page says
     "No longer accepting applications" only once rendered, while the list still calls it active."""
     results = await api_open(jobs, transport)
-    pages = [j for j, ok in results if j["source"] == "list" and ok is not False]
+    on_site = lambda j, ok: j["source"] in ("list", "you") and ok is not False
+    pages = [j for j, ok in results if on_site(j, ok)]
     if pages and transport is None:
         rendered = await render_open(pages)
-        results = [(j, rendered.get(j["job_id"], ok) if j["source"] == "list" and ok is not False else ok)
-                   for j, ok in results]
+        results = [(j, rendered.get(j["job_id"], ok) if on_site(j, ok) else ok) for j, ok in results]
     return results
 
 

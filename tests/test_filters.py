@@ -98,7 +98,8 @@ def test_drops_internships_and_coops_with_a_reason():
         assert classify(job(t)) == (False, ["intern/co-op"]), t
     assert is_match(job("Software Engineer, Internal Tools"))       # "Internal" isn't "intern"
     assert is_match(job("Backend Engineer, International Payments"))
-    assert classify(job("Senior Software Engineer")) == (False, ["title"])
+    assert classify(job("Senior Software Engineer")) == (False, ["title: Senior"])   # the word that dropped it
+    assert classify(job("Sr Backend Software Engineer I")) == (False, ["title: Sr"])
 
 
 def test_leading_country_code_is_not_a_us_state():

@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { logout, setRating, setStatus } from "./actions";
+import { AddJob } from "./add-job";
 import { FilterPanel } from "./filters";
 import { GoneButton } from "./gone-button";
 import { StatusButton } from "./status-button";
 import { ago, posted, updated } from "@/lib/dates";
-import { TABS, type JobRow, type Status, type Tab, listCompanies, listJobs, tabCounts } from "@/lib/db";
+import { TABS, type JobRow, type Status, type Tab, listCompanies, listJobs, recentAdded, tabCounts } from "@/lib/db";
 import { DEFAULT_TAB, MAX_LIMIT, PAGE_SIZE, ROLES, type Role, activeCount, parseFilters, parseLimit, toQuery } from "@/lib/filters";
 
 const LABELS: Record<Tab, string> = {
@@ -30,10 +31,11 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const tab: Tab = TABS.includes(params.get("tab") as Tab) ? (params.get("tab") as Tab) : DEFAULT_TAB;
   const filters = parseFilters(params, tab);
   const limit = parseLimit(params.get("limit")); // not a filter: changing a filter starts over at one page
-  const [{ jobs, matching }, counts, companies] = await Promise.all([
+  const [{ jobs, matching }, counts, companies, added] = await Promise.all([
     listJobs(tab, filters, limit),
     tabCounts(),
     listCompanies(),
+    recentAdded(),
   ]);
   const active = activeCount(filters);
 
@@ -65,6 +67,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
           })}
         </nav>
       </header>
+
+      <AddJob recent={added} />
 
       <FilterPanel key={toQuery(filters, tab)} tab={tab} filters={filters} companies={companies} active={active} />
 

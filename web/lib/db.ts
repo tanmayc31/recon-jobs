@@ -165,6 +165,30 @@ export async function updateStatus(jobId: string, status: Status) {
   await db()`UPDATE jobs SET status = ${status} WHERE job_id = ${jobId}`;
 }
 
+// "Add job": URLs you pasted, handled by recon/add.py (the same `added` table)
+export type Added = { id: string; url: string; added_at: string; state: string; message: string | null; job_id: string | null };
+
+const now = () => new Date().toISOString().slice(0, 19) + "+00:00";
+
+export async function queueAdded(url: string) {
+  await db()`INSERT INTO added (id, url, added_at, state) VALUES (${crypto.randomUUID().replace(/-/g, "")}, ${url}, ${now()}, 'queued')`;
+}
+
+export async function recentAdded(limit = 5): Promise<Added[]> {
+  return db()<Added[]>`SELECT id, url, added_at, state, message, job_id FROM added ORDER BY added_at DESC LIMIT ${limit}`;
+}
+
+/** "Keep anyway": the filters skipped it, you want it. recon/store.py keeps your matches matches. */
+export async function keepAdded(id: string): Promise<boolean> {
+  const sql = db();
+  const [row] = await sql<{ job_id: string | null }[]>`SELECT job_id FROM added WHERE id = ${id} AND state = 'skipped'`;
+  if (!row?.job_id) return false;
+  await sql`UPDATE jobs SET decision = 'match', status = 'new', via = 'you', closed_at = NULL,
+            reason = 'kept: ' || COALESCE(reason, ''), ai_skip = NULL WHERE job_id = ${row.job_id}`;
+  await sql`UPDATE added SET state = 'kept', message = 'Kept in New (the AI judges it next)' WHERE id = ${id}`;
+  return true;
+}
+
 /** For "Gone?": what the site's API needs, read from the database (not from the form). */
 export async function jobForCheck(jobId: string) {
   const [row] = await db()<{ job_id: string; source: string; url: string; source_ids: string | null }[]>`
