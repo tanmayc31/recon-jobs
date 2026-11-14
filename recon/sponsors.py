@@ -189,7 +189,7 @@ SAME = {
     "verizon data": "verizon communications", "huntington national bank": "huntington bancshares",
     "aurora operations": "aurora innovation", "cloud software": "citrix", "at and t": "at&t",
     "cox automotive corporate": "cox", "rockwell collins": "rtx", "hca management": "hca healthcare",
-    "kroger": "84.51 (kroger)",
+    "kroger": "84.51 (kroger)", "anysphere": "cursor (anysphere)",
     # subsidiaries hiring through the parent's board we already track
     "caremark": "cvs health", "aetna resources": "cvs health", "cybersource": "visa",
     "juniper networks": "hewlett packard enterprise",
