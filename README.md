@@ -71,6 +71,17 @@ Only lists whose license allows reuse are read: SimplifyJobs/New-Grad-Positions 
 speedyapply/2027-SWE-College-Jobs have no license, so Recon doesn't use them.
 A company's first run is saved as backlog, not shown as new.
 
+## Jobright alert emails (optional)
+The Tier 1-2 lane reads Jobright's job-alert emails from your Gmail (recon/sources/gmail.py):
+read-only Gmail API, only messages from JOBRIGHT_SENDER. Each link is followed by its redirects
+alone; Recon never requests jobright.ai pages, logs into Jobright or reads its website.
+Settings (local env file and GitHub secrets): GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
+GMAIL_REFRESH_TOKEN (from `python -m recon.sources.gmail --auth`), JOBRIGHT_SENDER.
+
+## Add a job by URL
+The dashboard's "Add job" box queues a link; `python -m recon.add` (GitHub Actions lane "add",
+started by the dashboard when GITHUB_DISPATCH_TOKEN is set in Vercel) reads, filters and judges it.
+
 ## Credits
 Company board data from [Job Seek](https://github.com/colophon-group/jobseek)
 (`apps/crawler/data/boards.csv`, MIT License, Copyright (c) 2025 Viktor Shcherbakov).

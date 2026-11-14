@@ -49,7 +49,7 @@ export type JobRow = {
   openings: number | null; // Amazon: identical title + location postings collapsed into this job
   role_type: string | null;
   level: string | null; // entry / ii / unknown (recon/roles.py)
-  via: "list" | "you" | null; // from a GitHub job list, or added by you; null: found on its board
+  via: "list" | "email" | "you" | null; // from a GitHub job list, a Jobright alert email, or added by you
   filings: number | null; // H-1B software filings (sponsors table), null if not a known sponsor
   my_rating: Rating | null; // your 👍 / 👎
   closed_at: string | null; // gone from the company's board

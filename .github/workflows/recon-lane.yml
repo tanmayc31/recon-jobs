@@ -20,6 +20,15 @@ on:
     secrets:
       DATABASE_URL:
         required: true
+      # Jobright alert emails (recon/sources/gmail.py), Tier 1-2 lane only; optional
+      GMAIL_CLIENT_ID:
+        required: false
+      GMAIL_CLIENT_SECRET:
+        required: false
+      GMAIL_REFRESH_TOKEN:
+        required: false
+      JOBRIGHT_SENDER:
+        required: false
 
 permissions:
   contents: read
@@ -46,6 +55,10 @@ jobs:
       - name: Run Recon (counts only; logs are public)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          JOBRIGHT_SENDER: ${{ secrets.JOBRIGHT_SENDER }}
           ARGS: ${{ inputs.args }}
           RECHECK: ${{ inputs.recheck && '--recheck' || '' }}
         run: |

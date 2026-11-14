@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     source_ids    TEXT,   -- Amazon: the site's job IDs behind it, comma-separated
     role_type     TEXT,   -- from the title (recon/roles.py): swe, backend, cloud, ...
     level         TEXT,   -- entry / ii / unknown (recon/roles.py level: title, then AI, then years)
-    via           TEXT,   -- 'list' (a GitHub job list) or 'you' (dashboard "Add job"); null: its board
+    via           TEXT,   -- 'list' (a GitHub job list), 'email' (a Jobright alert) or 'you' (dashboard
+                          -- "Add job"); null: found on its board
     posted_on     TEXT,   -- posted_at as an ISO date (Workday's "Posted 3 Days Ago" resolved)
     my_rating     INTEGER, -- your 👍 (1) / 👎 (-1) from the dashboard; null if unrated
     missed_runs   INTEGER DEFAULT 0, -- complete fetches of its company in a row without it

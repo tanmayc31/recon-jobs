@@ -15,7 +15,8 @@ class Job:
     updated_at: str | None = None  # site's last-edit time (Greenhouse only; others don't publish one)
     openings: int = 1      # Amazon: identical title + location postings collapsed into one job
     source_ids: str | None = None  # Amazon: every job ID behind this job, comma-separated; lists: the row's ID
-    via: str | None = None  # how it reached Recon when not by scanning its board: "list" (a GitHub job list)
+    via: str | None = None  # how it reached Recon when not by scanning its board: "list" (a GitHub job list),
+    #                         "email" (a Jobright alert), "you" (the dashboard's "Add job")
 
     def __post_init__(self):
         self.title = (self.title or "").strip()   # Amazon sends " Software Development Engineer, ..."

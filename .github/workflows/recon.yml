@@ -39,6 +39,10 @@ jobs:
       recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+      GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+      GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+      JOBRIGHT_SENDER: ${{ secrets.JOBRIGHT_SENDER }}
 
   tier-3-other:
     if: github.event.schedule == '0 4 * * 1' || inputs.lane == '3-other'
