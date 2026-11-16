@@ -31,7 +31,10 @@ def test_drops_senior_students_non_eng():
               "Infrastructure Network & Supply Engineer - FTC (6 months)",
               "Security Engineer, Infrastructure Security",
               "Full Stack Engineer - 4 (Java, JavaScript, TypeScript, AWS)",
-              "Software Engineer – 5"]:
+              "Software Engineer – 5",
+              "Vice President, AI / Machine Learning Software Engineer",
+              "Engineering-Seattle, WA-Vice President, Software Engineering Higher testing",
+              "Software Engineer - VP - Cloud Platform"]:
         assert not is_match(job(t)), t
 
 

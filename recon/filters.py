@@ -16,6 +16,7 @@ STUDENT = re.compile(r"\b(interns?|internships?|co-?ops?)\b", re.I)
 # ...seniority and non-engineering titles
 EXCLUDE = re.compile(
     r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|distinguished|"
+    r"vice president|vp|"   # bank titles: a VP is mid-career (Goldman Sachs, BNY)
     r"iii|iv|phd|high school|apprentice|"
     r"sales|account executive|recruiter|marketing|analyst|consultant|strategist|"
     r"solutions engineer|partner|electrical|mechanical|hardware|support engineer|"

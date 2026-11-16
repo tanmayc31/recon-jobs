@@ -11,7 +11,7 @@ Walmart,2861,workday,Walmart
 Deloitte,2401,avature,
 Capgemini,2394,custom site,
 HCLTech,2320,custom site,
-JPMorgan Chase,2307,oracle,
+JPMorgan Chase,2307,oracle,JPMorgan Chase
 IBM,2269,custom site,
 LTIMindtree,2135,custom site,
 Fidelity,2069,workday,Fidelity Investments
@@ -22,10 +22,10 @@ Wipro,1403,custom site,
 ByteDance/TikTok,1401,bytedance,
 EY,1378,successfactors,
 Mphasis,1321,custom site,
-Oracle,1147,oracle,
+Oracle,1147,oracle,Oracle
 Tech Mahindra,975,smartrecruiters,
 Qualcomm,933,eightfold,Qualcomm
-Goldman Sachs,889,oracle,
+Goldman Sachs,889,oracle,Goldman Sachs
 Nvidia,880,workday,Nvidia
 PayPal,824,workday,Paypal
 UST,816,custom site,
@@ -43,7 +43,7 @@ Virtusa,664,taleo,
 Tesla,662,custom site,
 CVS Health,591,workday,CVS Health
 Mastercard,585,workday,Mastercard
-FORD MOTOR COMPANY,581,oracle,
+FORD MOTOR COMPANY,581,oracle,Ford
 Bank of America,566,workday,Bank Of America
 Uber,561,greenhouse,Uber
 SKILLTUNE TECHNOLOGIES INC,559,unknown,
@@ -54,7 +54,7 @@ ServiceNow,525,smartrecruiters,
 "Charles Schwab & Company, Inc.",514,icims,
 "Optum Services, Inc.",505,taleo,
 Morgan Stanley,501,workday,Morgan Stanley
-American Express,498,oracle,
+American Express,498,oracle,American Express
 "Infinite Computer Solutions, Inc.",469,custom site,
 "ADP Technology Services, Inc.",463,adp,
 Charter Communications Inc.,450,custom site,
@@ -178,7 +178,7 @@ HP,141,workday,HP Inc.
 "Social Finance, LLC",140,greenhouse,Sofi
 "Autodesk, Inc.",140,workday,Autodesk
 "Pyramid Consulting, Inc.",139,custom site,
-Safeway Inc.,138,oracle,
+Safeway Inc.,138,oracle,Albertsons (Safeway)
 SAGE IT INC,138,unknown,
 "ERP Analysts, Inc.",137,unknown,
 "Nordstrom, Inc.",136,workday,Nordstrom
@@ -187,7 +187,7 @@ HEALTH CARE SERVICE CORPORATION,135,custom site,
 "Akamai Technologies, Inc.",133,oracle,
 KLA Corporation,132,workday,KLA
 The Northern Trust Company,132,workday,Northern Trust
-"Fortinet, Inc.",130,oracle,
+"Fortinet, Inc.",130,oracle,Fortinet
 "Coinbase, Inc.",130,greenhouse,Coinbase
 "Delta Air Lines, Inc.",129,avature,
 Genpact,129,workday,Genpact
@@ -196,17 +196,17 @@ Genpact,129,workday,Genpact
 "Zoox, Inc.",128,lever,Zoox
 "Sapphire Software Solutions, Inc.",128,unknown,
 "MIRACLE SOFTWARE SYSTEMS, INC.",128,unknown,
-"Perficient, Inc.",127,oracle,
+"Perficient, Inc.",127,oracle,Perficient
 "Zscaler, Inc.",127,greenhouse,Zscaler
 MURTHY LAW FIRM,127,unknown,
 "DIGIPULSE TECHNOLOGIES, INC.",126,unknown,
-Cummins Inc.,126,oracle,
+Cummins Inc.,126,oracle,Cummins
 Costco Wholesale Corporation,126,custom site,
 "Strategic Systems, Inc.",126,unknown,
 "SYSTEM SOFT TECHNOLOGIES, LLC",124,unknown,
-Nokia of America Corporation,124,oracle,
+Nokia of America Corporation,124,oracle,Nokia
 Elite IT Technologies LLC,124,custom site,
-"Citizens Financial Group, Inc.",123,oracle,
+"Citizens Financial Group, Inc.",123,oracle,Citizens
 "Chewy, Inc.",122,workday,Chewy
 Visionet Systems Inc,122,custom site,
 "Artech, LLC",122,custom site,
@@ -236,8 +236,8 @@ Coupang Global LLC,107,greenhouse,Coupang
 "Worldpay, LLC",107,workday,Worldpay
 Intellisoft Systems LLC,106,unknown,
 "F5, Inc.",105,workday,F5
-"Staples, Inc.",105,oracle,
-The Depository Trust & Clearing Corporation,104,oracle,
+"Staples, Inc.",105,oracle,Staples
+The Depository Trust & Clearing Corporation,104,oracle,DTCC
 Starbucks Coffee Company,104,eightfold,
 "Cigniti Technologies, Inc.",103,unknown,
 "Cohesity, Inc.",103,workday,Cohesity
@@ -261,7 +261,7 @@ Wayfair LLC,96,unknown,
 "ExlService.com, LLC",95,unknown,
 "Thermo Fisher Scientific, Inc.",93,unknown,
 "7-Eleven, Inc.",93,workday,7-Eleven
-The Bank of New York Mellon,92,oracle,
+The Bank of New York Mellon,92,oracle,BNY
 "Roku, Inc.",92,greenhouse,Roku
 Liberty Mutual Technology Group Inc.,92,icims,
 3i INFOTECH INC.,92,unknown,
@@ -341,7 +341,7 @@ Ibase Operations Corp.,74,unknown,
 "HM Health Solutions, Inc.",74,unknown,
 Amalgam Technologies Inc,74,unknown,
 Sysintelli Inc.,74,custom site,
-The Sherwin-Williams Company,73,oracle,
+The Sherwin-Williams Company,73,oracle,Sherwin-Williams
 "Blue Yonder, Inc.",73,phenom,
 "NobleSoft Solutions, Inc.",73,unknown,
 Emonics LLC,73,custom site,
@@ -356,7 +356,7 @@ Zurich American Insurance Company,72,unknown,
 Gainwell Technologies LLC,72,unknown,
 "athenahealth, Inc.",72,phenom,
 "Omnissa, LLC",71,custom site,Omnissa
-"Honeywell International, Inc.",71,oracle,
+"Honeywell International, Inc.",71,oracle,Honeywell
 "MOURI Tech, LLC",71,custom site,
 "CrowdStrike, Inc.",71,workday,Crowdstrike
 Genesis Corp,71,unknown,
@@ -437,7 +437,7 @@ INTELIROUTE TECHNOLOGIES LLC,59,unknown,
 "Tata Technologies, Inc.",59,custom site,
 "Guidewire Software, Inc.",58,unknown,Guidewire
 "Zoetis, Inc.",58,workday,Zoetis
-"Marriott International, Inc.",58,oracle,
+"Marriott International, Inc.",58,oracle,Marriott International
 "DaVita, Inc.",58,workday,Davita
 New York Life Insurance Company,58,custom site,
 "iTech US, Inc.",58,unknown,

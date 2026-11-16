@@ -166,3 +166,18 @@ def test_eightfold_open_and_closed(monkeypatch):
         job("eightfold:qualcomm.com:446721162271", "eightfold", "https://careers.qualcomm.com/careers/job/446721162271"),
     ], httpx.MockTransport(h)))}
     assert got == {"eightfold:microsoft.com:1970393557050639": False, "eightfold:qualcomm.com:446721162271": True}
+
+
+def test_oracle_open_and_closed(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a closed requisition answers 200 with no items
+        assert req.url.host == "jpmc.fa.oraclecloud.com" and req.url.params["finder"].endswith("siteNumber=CX_1001")
+        gone = 'Id="999999999"' in req.url.params["finder"]
+        return httpx.Response(200, json={"items": [] if gone else [{"Id": "210808784", "Title": "x"}], "count": 0})
+    url = "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/"
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("oracle:jpmc.fa.oraclecloud.com:999999999", "oracle", url + "999999999"),
+        job("oracle:jpmc.fa.oraclecloud.com:210808784", "oracle", url + "210808784"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"oracle:jpmc.fa.oraclecloud.com:999999999": False, "oracle:jpmc.fa.oraclecloud.com:210808784": True}

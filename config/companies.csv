@@ -3961,3 +3961,20 @@ GE Appliances (Haier),workday,haier|wd3|ge_appliances,3
 Wayve,ashby,wayve,3
 Temporal,ashby,temporal,3
 Sun Life Campus,workday,sunlife|wd3|campus,3
+JPMorgan Chase,oracle,jpmc.fa.oraclecloud.com|CX_1001,2
+Oracle,oracle,eeho.fa.us2.oraclecloud.com|CX_45001,2
+Goldman Sachs,oracle,hdpc.fa.us2.oraclecloud.com|LateralHiring,2
+Ford,oracle,efds.fa.em5.oraclecloud.com|CX_1,2
+American Express,oracle,egug.fa.us2.oraclecloud.com|CX_1,2
+Albertsons (Safeway),oracle,eofd.fa.us6.oraclecloud.com|CX_1001,2
+Fortinet,oracle,edel.fa.us2.oraclecloud.com|CX_1,2
+Perficient,oracle,fa-etqd-saasfaprod1.fa.ocs.oraclecloud.com|CX_1,2
+Cummins,oracle,fa-espx-saasfaprod1.fa.ocs.oraclecloud.com|CX_1,2
+Nokia,oracle,fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com|CX_1,2
+Citizens,oracle,hcgn.fa.us2.oraclecloud.com|CX_1,2
+Staples,oracle,fa-exhh-saasfaprod1.fa.ocs.oraclecloud.com|StaplesInc,2
+DTCC,oracle,ebxr.fa.us2.oraclecloud.com|CX_1,2
+BNY,oracle,eofe.fa.us2.oraclecloud.com|BNY-Careers,2
+Honeywell,oracle,ibqbjb.fa.ocs.oraclecloud.com|Honeywell,2
+Marriott International,oracle,ejwl.fa.us2.oraclecloud.com|CX,2
+Sherwin-Williams,oracle,ejhp.fa.us6.oraclecloud.com|CX_2,2

@@ -71,6 +71,14 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       const r = await get(`https://${host}/api/pcsx/position_details?position_id=${id}&domain=${slug}&hl=en`);
       return r.status === 200 ? "open" : r.status === 404 ? "gone" : "unknown";
     }
+    if (source === "oracle") {
+      // slug is the Oracle host; the site comes from the job's link. A closed job: empty items
+      const site = job.url.match(/\/sites\/([^/]+)\/job\//)?.[1] ?? "CX_1";
+      const finder = encodeURIComponent(`ById;Id="${id}",siteNumber=${site}`);
+      const r = await get(`https://${slug}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?onlyData=true&finder=${finder}`);
+      if (r.status !== 200) return "unknown";
+      return ((await r.json()).items ?? []).length ? "open" : "gone";
+    }
     if (source === "amazon") {
       for (const req of (job.source_ids ?? "").split(",").filter(Boolean)) {
         if ((await get(`https://www.amazon.jobs/en/jobs/${req}`)).status === 200) return "open";

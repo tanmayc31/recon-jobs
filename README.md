@@ -90,6 +90,13 @@ recon/sources/eightfold.py scans Eightfold career sites (Microsoft, Qualcomm, Er
 Scientific, Dexcom, Infineon, Eaton, MTSI) through their public search API; companies.csv slug is
 host|domain, e.g. apply.careers.microsoft.com|microsoft.com.
 
+## Oracle HCM
+recon/sources/oracle.py scans Oracle Recruiting Cloud career sites (JPMorgan Chase, Oracle, Goldman
+Sachs, Ford, American Express, Albertsons (Safeway), Fortinet, Perficient, Cummins, Nokia, Citizens,
+Staples, DTCC, BNY, Honeywell, Marriott International, Sherwin-Williams) through the public API their
+career sites call; companies.csv slug is host|site, e.g. jpmc.fa.oraclecloud.com|CX_1001. Every US
+posting is read (200 a page), so a run's listing is complete and closes jobs that are gone.
+
 ## Jobright alert emails (off)
 Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
 reads, so the emails add nothing. Without the settings below the source does nothing.

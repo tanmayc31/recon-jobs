@@ -12,11 +12,11 @@ import httpx
 from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
-from recon.sources import amazon, ashby, eightfold, gmail, greenhouse, lever, listings, workday
+from recon.sources import amazon, ashby, eightfold, gmail, greenhouse, lever, listings, oracle, workday
 from recon.store import MISSES_TO_CLOSE, Store, fresh, now
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon,
-           "listings": listings, "gmail": gmail, "eightfold": eightfold}
+           "listings": listings, "gmail": gmail, "eightfold": eightfold, "oracle": oracle}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
@@ -27,7 +27,8 @@ PARALLEL = {"workday": 10, "other": 20}
 DEADLINE = 8 * 60
 COMPANY_TIMEOUT = 2 * 60
 LIST_TIMEOUT = 6 * 60   # a job list resolves every new row's link; the first run has hundreds
-SLOW = {"listings", "gmail", "eightfold"}   # LIST_TIMEOUT: Eightfold pages 10 jobs at a time
+SLOW = {"listings", "gmail", "eightfold", "oracle"}   # LIST_TIMEOUT: Eightfold pages 10 jobs at a time,
+                                                    # Oracle reads every US posting (Safeway ~8,600)
 
 
 def quiet() -> bool:
