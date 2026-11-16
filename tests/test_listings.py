@@ -86,7 +86,7 @@ def test_unreadable_page_uses_the_list_and_keeps_its_gates(monkeypatch):
 
 def test_skips_jobs_our_adapters_have(monkeypatch):
     jobs, asked, _ = run(monkeypatch, {"known": {"greenhouse:stripe:7012345"},
-                                       "covered": {("google", "software engineer, early career", "mountain view, ca")}})
+                                       "covered": {("google", "software engineer, early career")}})
     assert "Stripe" not in jobs and "Google" not in jobs                     # same job ID / same company+title+place
     assert not any(u.endswith("go.vansh.nyc/3") for u in asked)              # covered: not even resolved
 

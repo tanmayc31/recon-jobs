@@ -305,11 +305,11 @@ class Store:
         """Job-list rows already saved (recon/sources/listings.py): their links aren't resolved again."""
         return {r[0] for r in self.execute("SELECT source_ids FROM jobs WHERE via = 'list'").fetchall()}
 
-    def covered_keys(self) -> set[tuple[str, str, str]]:
-        """(company, title, location), lowercase, of every saved job: a job list's copy of one of
-        these is skipped (lists repeat each other and our adapters)."""
-        return {(c.lower(), t.lower(), (loc or "").lower()) for c, t, loc in self.execute(
-            "SELECT company, title, location FROM jobs").fetchall()}
+    def covered_keys(self) -> set[tuple[str, str]]:
+        """(company, title), lowercase, of every saved job: a job list's copy of one of these is
+        skipped (lists repeat each other and our adapters). Not the location: lists write it their
+        own way ("Redmond, WA" for Eightfold's "Redmond, WA, US")."""
+        return {(c.lower(), t.lower()) for c, t in self.execute("SELECT company, title FROM jobs").fetchall()}
 
     def job_urls(self) -> set[str]:
         return {r[0] for r in self.execute("SELECT url FROM jobs WHERE url IS NOT NULL").fetchall()}

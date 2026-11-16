@@ -75,6 +75,11 @@ and recon.sponsors (which write committed files) read only the MIT list. A job a
 already has (same job ID, link, or company + title + location) isn't added again.
 A company's first run is saved as backlog, not shown as new.
 
+## Eightfold
+recon/sources/eightfold.py scans Eightfold career sites (Microsoft, Qualcomm, Ericsson, Boston
+Scientific, Dexcom, Infineon, Eaton, MTSI) through their public search API; companies.csv slug is
+host|domain, e.g. apply.careers.microsoft.com|microsoft.com.
+
 ## Jobright alert emails (optional)
 The Tier 1-2 lane reads Jobright's job-alert emails from your Gmail (recon/sources/gmail.py):
 read-only Gmail API, only messages from JOBRIGHT_SENDER. Each link is followed by its redirects

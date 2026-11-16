@@ -12,11 +12,11 @@ import httpx
 from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
-from recon.sources import amazon, ashby, gmail, greenhouse, lever, listings, workday
+from recon.sources import amazon, ashby, eightfold, gmail, greenhouse, lever, listings, workday
 from recon.store import MISSES_TO_CLOSE, Store, fresh, now
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon,
-           "listings": listings, "gmail": gmail}
+           "listings": listings, "gmail": gmail, "eightfold": eightfold}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
@@ -27,6 +27,7 @@ PARALLEL = {"workday": 10, "other": 20}
 DEADLINE = 8 * 60
 COMPANY_TIMEOUT = 2 * 60
 LIST_TIMEOUT = 6 * 60   # a job list resolves every new row's link; the first run has hundreds
+SLOW = {"listings", "gmail", "eightfold"}   # LIST_TIMEOUT: Eightfold pages 10 jobs at a time
 
 
 def quiet() -> bool:
@@ -59,7 +60,7 @@ async def fetch_company(client, sems, company, deadline, outcome):
             outcome["not reached"] += 1
             return None
         try:
-            limit = LIST_TIMEOUT if company["ats"] in ("listings", "gmail") else COMPANY_TIMEOUT
+            limit = LIST_TIMEOUT if company["ats"] in SLOW else COMPANY_TIMEOUT
             jobs = await asyncio.wait_for(SOURCES[company["ats"]].fetch(client, company), limit)
             outcome["ok"] += 1
             return jobs

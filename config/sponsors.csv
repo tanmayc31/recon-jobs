@@ -1,7 +1,7 @@
 employer,swe_filings,ats,recon_company
 Amazon,13420,amazon,Amazon
 Cognizant,10317,custom site,
-Microsoft,7005,eightfold,
+Microsoft,7005,eightfold,Microsoft
 Tata Consultancy Services,6749,custom site,
 Google,6241,custom site,
 Infosys,4788,custom site,
@@ -24,7 +24,7 @@ EY,1378,successfactors,
 Mphasis,1321,custom site,
 Oracle,1147,oracle,
 Tech Mahindra,975,smartrecruiters,
-Qualcomm,933,eightfold,
+Qualcomm,933,eightfold,Qualcomm
 Goldman Sachs,889,oracle,
 Nvidia,880,workday,Nvidia
 PayPal,824,workday,Paypal
@@ -272,7 +272,7 @@ COGNIER INC,90,unknown,
 INFOSTRETCH CORPORATION,90,unknown,
 "Wolters Kluwer DXG U.S., Inc.",90,workday,Wolters Kluwer
 "AUDIBLE, INC.",89,custom site,
-Ericsson Inc.,89,eightfold,
+Ericsson Inc.,89,eightfold,Ericsson
 Infogain Corporation,89,custom site,
 ROBERT BOSCH LLC,89,unknown,
 BEACONFIRE STAFFING SOLUTIONS INC.,89,unknown,
@@ -561,7 +561,7 @@ Aptiv US Services General Partnership,47,,
 "DIRECTV, LLC",46,,
 "IT RESOURCES, INC.",46,,
 Axtria INC,46,,
-Boston Scientific Corporation,46,,
+Boston Scientific Corporation,46,eightfold,Boston Scientific
 "AutoZone, Inc.",46,,
 EGEN SOLUTIONS LLC.,46,,
 "CLOUDFLARE, INC.",46,greenhouse,Cloudflare
@@ -881,7 +881,7 @@ SAFE CODE SOFT TECHNOLOGIES INC,33,,
 "Domino's Pizza, Inc.",33,,
 Aanvi Cloud Technologies Inc,33,,
 "United IT Solutions, Inc",33,,
-Eaton Corporation,33,,
+Eaton Corporation,33,eightfold,Eaton
 "MultiPlan, Inc.",33,,
 Risamsoft Inc.,33,,
 "Moloco, Inc.",33,greenhouse,Moloco
@@ -1081,7 +1081,7 @@ ADVENTIST HEALTH SYSTEM SUNBELT HEALTHCARE CORP,28,,
 Dematic Corp.,28,,
 Virtuous Tech Inc,28,,
 "DATAMETRICS SOFTWARE SYSTEMS, INC",28,,
-"Dexcom, Inc.",28,,
+"Dexcom, Inc.",28,eightfold,Dexcom
 "American Unit, Inc",28,,
 GanaIT Inc,28,,
 AVERON SOLUTIONS INC.,28,,
@@ -2213,7 +2213,7 @@ FUSION PLUS SOLUTIONS INC.,16,,
 KET Systems LLC,16,,
 Lucid Software Inc.,16,greenhouse,Lucid Software
 GAIT SOLUTIONS LLC,16,,
-Infineon Technologies Americas Corp.,16,,
+Infineon Technologies Americas Corp.,16,eightfold,Infineon Technologies
 "Kohls, Inc.",16,,
 TEC INTUITION INC,16,,
 "FourthSquare, LLC",16,,

@@ -65,6 +65,12 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       if (!ASHBY_CAREERS.has(slug) && (await get(`https://jobs.ashbyhq.com/${slug}`)).status === 404) return "gone";
       return "open";
     }
+    if (source === "eightfold") {
+      // slug is the company's domain; the job's own host answers its API
+      const host = new URL(job.url).host;
+      const r = await get(`https://${host}/api/pcsx/position_details?position_id=${id}&domain=${slug}&hl=en`);
+      return r.status === 200 ? "open" : r.status === 404 ? "gone" : "unknown";
+    }
     if (source === "amazon") {
       for (const req of (job.source_ids ?? "").split(",").filter(Boolean)) {
         if ((await get(`https://www.amazon.jobs/en/jobs/${req}`)).status === 200) return "open";

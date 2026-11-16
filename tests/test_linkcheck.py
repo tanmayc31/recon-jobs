@@ -152,3 +152,17 @@ def test_rendered_list_pages_open_gone_or_blocked(monkeypatch):
             job("list:citadel", "list", "u", title="Software Engineer"), job("list:apple", "list", "u", title="Graphics Software Content Engineer")]
     assert asyncio.run(linkcheck.render_open(jobs)) == {"list:ms": False, "list:tesla": None, "list:citadel": None,
                                                        "list:apple": True}
+
+
+def test_eightfold_open_and_closed(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a closed Microsoft job answers 404 "Position not found"
+        if req.url.params.get("position_id") == "1970393557050639":
+            return httpx.Response(404, json={"status": 404, "error": {"message": "Position not found"}, "data": {}})
+        return httpx.Response(200, json={"status": 200, "data": {"id": 1, "jobDescription": "x"}})
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("eightfold:microsoft.com:1970393557050639", "eightfold", "https://apply.careers.microsoft.com/careers/job/1970393557050639"),
+        job("eightfold:qualcomm.com:446721162271", "eightfold", "https://careers.qualcomm.com/careers/job/446721162271"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"eightfold:microsoft.com:1970393557050639": False, "eightfold:qualcomm.com:446721162271": True}

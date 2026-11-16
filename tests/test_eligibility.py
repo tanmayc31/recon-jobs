@@ -249,3 +249,21 @@ def test_not_software_gate_second_pass():
                "work. CCPA Notice for Candidates and California Employees "
                "https://saronic-assets-public.s3.us-east-2.amazonaws.com/Saronic%20CCPA%20Notice")
     assert check(saronic, "Civil/Site Engineer \u2013 Infrastructure")[1] == "not software"
+
+
+def test_cleared_roles_named_in_the_title():
+    # real Microsoft (Eightfold) titles: CTJ = Cleared Talent Jobs; descriptions don't always say it
+    for t in ["Software Engineer II- CTJ- POLY", "Software Engineering II - CTJ - Poly",
+              "Site Reliability Engineer - CTJ - Secret", "Software Engineer - Cleared",
+              "Software Engineer (TS/SCI)", "Cloud Engineer - Top Secret"]:
+        assert check("Build cloud services in C# and Python.", t)[1] == "citizenship/clearance", t
+    for t in ["Software Engineer, Secrets Management", "Software Engineer, Polymer Informatics", "Software Engineer II - Backend",
+              "Software Engineer, Clearing Systems"]:
+        assert check("Build cloud services in C# and Python.", t)[0], t
+
+
+def test_active_government_top_secret_clearance():
+    # real Microsoft "Software Engineer - Cleared" description
+    text = ("Security screenings: The successful candidate must have an active U.S. Government Top Secret "
+            "Security Clearance. Failure to maintain or obtain the appropriate clearance")
+    assert check(text, "Software Engineer")[1] == "citizenship/clearance"

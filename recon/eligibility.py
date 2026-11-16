@@ -28,6 +28,8 @@ BLOCKERS = {
         # "Active Top Secret required with ability to obtain SCI Preferred": keep "required" in
         # the match so the later "Preferred" can't make it look soft
         r"active\s+(secret|top\s+secret|ts/sci)(\s+(security\s+)?clearance)?(\s+(is\s+)?required)?|"
+        # Microsoft: "must have an active U.S. Government Top Secret Security Clearance"
+        r"active\s+(u\.?s\.?\s+)?(government\s+)?(secret|top\s+secret)\s+(security\s+)?clearance|"
         r"top\s+secret\s+(security\s+)?(clearance\s+)?(is\s+)?required|"
         # a few words allowed: "obtain and maintain a U.S. government issued security clearance"
         r"(obtain|maintain|eligible\s+for)(\s+[\w./-]+){0,6}?\s+security\s+clearance|"
@@ -56,6 +58,10 @@ BLOCKERS = {
 TS_SCI = re.compile(r"\bts\s*[/-]?\s*sci\b|top\s+secret\s*[/-]\s*sci\b", re.I)
 
 CLEARANCE = re.compile(r"\bclearance\b", re.I)
+
+# Cleared roles named in the title: Microsoft's "Software Engineer II - CTJ - Poly" (Cleared Talent
+# Jobs, polygraph), "Site Reliability Engineer - CTJ - Secret", "Software Engineer - Cleared"
+CLEARED_TITLE = re.compile(r"\b(ctj|cleared|poly|polygraph|ts\s*/\s*sci|top\s+secret)\b|[-–]\s*secret\b", re.I)
 
 # Soft words: the sentence is a wish, not a requirement
 SOFT_CLEARANCE = re.compile(r"beneficial|preferred|a\s+plus|nice\s+to\s+have|not\s+necessary", re.I)
@@ -251,7 +257,7 @@ def check(text: str, title: str = "") -> tuple[bool, str | None, int | None, lis
     """Returns (ok, skip_reason, min_years, flags)."""
     text = text or ""
     flags = []
-    if TS_SCI.search(text):
+    if TS_SCI.search(text) or (title and CLEARED_TITLE.search(title)):
         return False, "citizenship/clearance", min_years(text), flags
     for reason, rx in BLOCKERS.items():
         found = list(rx.finditer(text))
