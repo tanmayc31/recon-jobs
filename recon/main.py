@@ -70,6 +70,20 @@ async def fetch_company(client, sems, company, deadline, outcome):
             return None
 
 
+def one_copy(all_jobs: list) -> list:
+    """The same posting from two job lists in one run (same job ID, link, or company + title +
+    location): keep the first."""
+    seen, out = set(), []
+    for board, j in all_jobs:
+        if j.via == "list":
+            keys = {j.job_id, j.url, (j.company.lower(), j.title.lower(), j.location.lower())}
+            if keys & seen:
+                continue
+            seen |= keys
+        out.append((board, j))
+    return out
+
+
 async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str] | None = None):
     """recheck=True re-fetches descriptions and re-judges every job (after a filter change)."""
     started = time.monotonic()
@@ -84,10 +98,10 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     for c in companies:
         c["known"] = known   # adapters skip description requests for these job IDs
     if any(c["ats"] == "listings" for c in companies):
-        list_ids, covered = store.list_ids(), store.covered_keys()
+        list_ids, covered, urls = store.list_ids(), store.covered_keys(), store.job_urls()
         for c in companies:
             if c["ats"] == "listings":
-                c["list_ids"], c["covered"] = list_ids, covered
+                c["list_ids"], c["covered"], c["urls"] = list_ids, covered, urls
     store.close()
     random.shuffle(companies)   # if the time budget runs out, a different set waits each run
     sems = {lane: asyncio.Semaphore(n) for lane, n in PARALLEL.items()}
@@ -97,6 +111,7 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
             fetch_company(client, sems, c, started + DEADLINE, outcome) for c in companies))
     # (board, job): a job list's jobs belong to many companies, but its first run is the list's
     all_jobs = [(c["company"], j) for c, jobs in zip(companies, results) if jobs for j in jobs]
+    all_jobs = one_copy(all_jobs)
 
     store = Store(url=os.environ.get("DATABASE_URL"))
     new_matches, backlog, unverified, skipped, rows, kept, still_listed = [], 0, 0, Counter(), [], {}, []

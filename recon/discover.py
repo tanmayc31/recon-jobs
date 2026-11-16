@@ -82,7 +82,7 @@ async def list_links(client: httpx.AsyncClient) -> list[dict]:
             except httpx.HTTPError:
                 return None
     links = []
-    for repo in listings.LISTS:
+    for repo in listings.REUSABLE:   # companies.csv is committed: personal-use lists never feed it
         links += [x for x in await asyncio.gather(*(one(r) for r in await listings.rows(client, repo))) if x]
     return links
 

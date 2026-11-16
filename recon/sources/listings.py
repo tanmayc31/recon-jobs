@@ -1,10 +1,15 @@
 """New-grad job lists on GitHub: jobs from companies we can't scan directly (Google, Microsoft, ...).
 
-Only lists whose license allows reuse: vanshb03/New-Grad-2027 (MIT). Credited in the README.
-companies.csv row: "New-Grad-2027 list,listings,vanshb03/New-Grad-2027,2".
+Lists (credited in the README), one companies.csv row each, e.g.
+"New-Grad-2027 list,listings,vanshb03/New-Grad-2027,2":
+  vanshb03/New-Grad-2027              MIT license
+  SimplifyJobs/New-Grad-Positions     no license: personal use only
+  speedyapply/2027-SWE-College-Jobs   no license: personal use only
+Rows from the personal-use lists live only in the database (the repo is public): recon.discover
+and recon.sponsors, which write committed files, read only the lists marked reusable.
 
-Each active row that passes the title/location filter is resolved once: its go.vansh.nyc link
-redirects to the real posting. Greenhouse, Lever, Ashby and Workday postings get our usual job
+Each active row that passes the title/location filter is resolved once (vanshb03's go.vansh.nyc
+links redirect to the real posting; a link already on a job board isn't requested). Greenhouse, Lever, Ashby and Workday postings get our usual job
 IDs and descriptions from those sites' APIs, so a job our adapters already track is the same job.
 Amazon is skipped (our Amazon adapter has every Amazon job). Anything else gets the page's text
 if it reads like the job, else a one-line description from the list, and is judged on that.
@@ -12,7 +17,10 @@ The list's own sponsorship column ("U.S. Citizenship is Required", "Does Not Off
 goes into the description, so the eligibility gates still apply.
 """
 import asyncio
+import hashlib
+import html
 import re
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -22,9 +30,19 @@ from recon.models import Job
 from recon.sources import ashby
 from recon.text import strip_html
 
-LISTS = {
-    "vanshb03/New-Grad-2027": "https://raw.githubusercontent.com/vanshb03/New-Grad-2027/dev/.github/scripts/listings.json",
+LISTS = {   # repo -> (format, URL, license allows reuse)
+    "vanshb03/New-Grad-2027": (
+        "json", "https://raw.githubusercontent.com/vanshb03/New-Grad-2027/dev/.github/scripts/listings.json", True),
+    "SimplifyJobs/New-Grad-Positions": (
+        "json", "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json",
+        False),
+    "speedyapply/2027-SWE-College-Jobs": (
+        "markdown", "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/NEW_GRAD_USA.md", False),
 }
+REUSABLE = [repo for repo, (_, _, ok) in LISTS.items() if ok]
+SKIP_LINK = re.compile(r"^https?://(www\.)?simplify\.jobs/", re.I)   # Simplify's own pages, not the posting
+SHORT_LINK = re.compile(r"^https?://go\.vansh\.nyc/", re.I)
+BUDGET = 4.5 * 60   # seconds of resolving per list per run; what's left waits for the next run
 TIER = 2           # the companies these lists add are mostly ones we'd track at Tier 1-2 if we could
 PARALLEL = 4
 DELAY = 0.3
@@ -39,10 +57,37 @@ AMAZON = re.compile(r"^https?://(www\.)?amazon\.jobs/")
 
 
 async def rows(client: httpx.AsyncClient, repo: str) -> list[dict]:
-    """The list's active, visible rows."""
-    r = await client.get(LISTS[repo])
+    """The list's active, visible rows, as {id, company_name, title, locations, url, sponsorship,
+    date_posted}."""
+    kind, url, _ = LISTS[repo]
+    r = await client.get(url)
     r.raise_for_status()
-    return [x for x in r.json() if x.get("active") and x.get("is_visible", True)]
+    found = markdown_rows(r.text) if kind == "markdown" else r.json()
+    return [x for x in found if x.get("active", True) and x.get("is_visible", True) and not SKIP_LINK.match(x["url"])]
+
+
+CELL_LINK = re.compile(r'href="([^"]+)"')
+AGE = re.compile(r"^(\d+)d$")
+
+
+def markdown_rows(md: str, now: float | None = None) -> list[dict]:
+    """speedyapply's tables: | Company | Position | Location | [Salary |] Posting | Age |.
+    No row IDs: the posting URL is the ID."""
+    now = now or datetime.now(timezone.utc).timestamp()
+    out = []
+    for line in md.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 5 or "<strong>" not in cells[0]:
+            continue
+        posting = next((m.group(1) for c in reversed(cells) if (m := CELL_LINK.search(c)) and "Apply" in c), None)
+        if not posting:
+            continue
+        age = AGE.match(cells[-1])
+        out.append({"id": "sa-" + hashlib.sha1(posting.encode()).hexdigest()[:16],
+                    "company_name": html.unescape(re.sub(r"<[^>]+>", "", cells[0])).strip(),
+                    "title": html.unescape(cells[1]), "locations": [html.unescape(cells[2])], "url": posting,
+                    "sponsorship": "Other", "date_posted": now - int(age.group(1)) * 86400 if age else None})
+    return out
 
 
 def base_job(row: dict, repo: str) -> Job:
@@ -60,7 +105,9 @@ def from_list(job: Job, row: dict) -> str:
 
 
 async def resolve(client: httpx.AsyncClient, url: str) -> str:
-    """The go link's target: one request, the redirect isn't followed."""
+    """A short link's target: one request, the redirect isn't followed. Other links as they are."""
+    if not SHORT_LINK.match(url):
+        return url
     r = await client.get(url, follow_redirects=False)
     return r.headers.get("location", url) if r.is_redirect else url
 
@@ -106,7 +153,7 @@ async def describe(client: httpx.AsyncClient, job: Job, url: str, boards: dict) 
             job.source, job.url = "workday", info.get("externalUrl") or url
             job.description = strip_html(info.get("jobDescription"))
         return job
-    r = await client.get(url)   # a company's own site: use the page if it reads like the job
+    r = await client.get(url, follow_redirects=True)   # a company's own site: use the page if it reads like the job
     text = strip_html(r.text) if r.status_code == 200 and "html" in r.headers.get("content-type", "") else ""
     if len(text) >= MIN_PAGE_TEXT and job.title.split()[0].lower() in text.lower():
         job.description = text
@@ -115,27 +162,31 @@ async def describe(client: httpx.AsyncClient, job: Job, url: str, boards: dict) 
 
 async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
     """company: the list's companies.csv row, plus from main: known (job IDs), list_ids (rows
-    already saved, not resolved again) and covered ((company, title, location) our adapters have)."""
+    already saved, not resolved again), covered ((company, title, location) of every saved job) and
+    urls (every saved job's link): a job Recon has from any source isn't added again."""
     company["partial"] = True   # a list isn't a company's whole board: never used to auto-close
     repo, done = company["slug"], set(company.get("list_ids", ()))
-    covered = company.get("covered", set())
+    covered, urls = company.get("covered", set()), company.get("urls", set())
     todo = []
     for row in await rows(client, repo):
         job = base_job(row, repo)
-        if row["id"] in done or (job.company.lower(), job.title.lower(), job.location.lower()) in covered:
+        if row["id"] in done or row["url"] in urls or \
+                (job.company.lower(), job.title.lower(), job.location.lower()) in covered:
             continue
         if classify(job)[0]:   # title + location before any request
             todo.append((job, row))
-    sem, boards = asyncio.Semaphore(PARALLEL), {}
+    sem, boards, started = asyncio.Semaphore(PARALLEL), {}, time.monotonic()
 
     async def one(job, row):
         async with sem:
+            if time.monotonic() - started > BUDGET:
+                return None   # not saved, so the next run resolves it
             try:
                 out = await describe(client, job, await resolve(client, job.url), boards)
             except httpx.HTTPError:
                 out = job   # keep the list's go link; it still opens the posting
             await asyncio.sleep(DELAY)
-        if out is None or out.job_id in company.get("known", ()):
+        if out is None or out.job_id in company.get("known", ()) or out.url in urls:
             return None
         if not out.description.strip():
             out.description = from_list(out, row)

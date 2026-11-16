@@ -67,8 +67,12 @@ The Tier 1-2 lane also reads [vanshb03/New-Grad-2027](https://github.com/vanshb0
 (recon/sources/listings.py): jobs from companies we can't scan directly. Each row's link is
 resolved to the real posting; Greenhouse/Lever/Ashby/Workday postings are read through their APIs,
 anything else is judged on its page or on the list's title, company and location ("from list").
-Only lists whose license allows reuse are read: SimplifyJobs/New-Grad-Positions and
-speedyapply/2027-SWE-College-Jobs have no license, so Recon doesn't use them.
+It also reads [SimplifyJobs/New-Grad-Positions](https://github.com/SimplifyJobs/New-Grad-Positions)
+and [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) for
+the owner's personal use only: they have no license, so nothing from them is committed here. Their
+rows live only in Recon's private database, simplify.jobs links are skipped, and recon.discover
+and recon.sponsors (which write committed files) read only the MIT list. A job any source
+already has (same job ID, link, or company + title + location) isn't added again.
 A company's first run is saved as backlog, not shown as new.
 
 ## Jobright alert emails (optional)
@@ -87,6 +91,9 @@ Company board data from [Job Seek](https://github.com/colophon-group/jobseek)
 (`apps/crawler/data/boards.csv`, MIT License, Copyright (c) 2025 Viktor Shcherbakov).
 New-grad job listings from [vanshb03/New-Grad-2027](https://github.com/vanshb03/New-Grad-2027)
 (`.github/scripts/listings.json`, MIT License, Copyright (c) 2025 Vansh Bataviya) and contributors.
+Job listings, for personal use only (no license; not redistributed, no data committed), from
+[SimplifyJobs/New-Grad-Positions](https://github.com/SimplifyJobs/New-Grad-Positions) (Simplify and
+Coder Quad) and [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs).
 Company names (only) from [jobright-ai/2026-Software-Engineer-New-Grad](https://github.com/jobright-ai/2026-Software-Engineer-New-Grad),
 to find which companies Recon should watch; Recon doesn't use its job links.
 

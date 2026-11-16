@@ -119,8 +119,12 @@ def test_list_jobs_are_open_while_listed_and_the_page_loads(monkeypatch):
 
     def lists(req):
         url = str(req.url)
-        if url in listings.LISTS.values():
-            return httpx.Response(200, json=[{"id": "id-3", "active": True}, {"id": "id-4", "active": False}])
+        lists = {u: kind for kind, u, _ in listings.LISTS.values()}
+        if lists.get(url) == "json":
+            return httpx.Response(200, json=[{"id": "id-3", "active": True, "url": "https://www.google.com/x"},
+                                             {"id": "id-4", "active": False, "url": "https://www.google.com/y"}])
+        if lists.get(url) == "markdown":
+            return httpx.Response(200, text="")
         return httpx.Response(404 if "gone" in url else 200)
     got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
         job("list:id-3", "list", "https://www.google.com/about/careers/x", "id-3"),

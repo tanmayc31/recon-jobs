@@ -303,3 +303,14 @@ def test_job_list_rows_are_saved_once_and_marked_from_list(tmp_path, monkeypatch
     assert seen["list_ids"] == {"id-3"}                                  # second run: not resolved again
     row = Store(tmp_path / "t.db").execute("SELECT via, status, decision FROM jobs").fetchone()
     assert row == ("list", "new", "match")                               # posted recently: New on the first run
+
+
+def test_the_same_posting_from_two_lists_is_kept_once():
+    def listed(n, url, company="Google", title="Software Engineer", location="Mountain View, CA"):
+        return Job(f"list:{n}", company, title, location, url, None, "list", 2, "x", source_ids=n, via="list")
+    pairs = [("vansh", listed("v1", "https://careers.google.com/jobs/1")),
+             ("simplify", listed("s1", "https://careers.google.com/jobs/1")),              # same link
+             ("speedy", listed("sa-1", "https://www.google.com/about/careers/1")),       # same company/title/place
+             ("speedy", listed("sa-2", "https://www.google.com/about/careers/2", title="Software Engineer II")),
+             ("Stripe", job(1))]                                                         # boards: untouched
+    assert [j.job_id for _, j in main.one_copy(pairs)] == ["list:v1", "list:sa-2", "greenhouse:co:1"]

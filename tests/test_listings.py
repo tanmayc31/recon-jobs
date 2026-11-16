@@ -44,7 +44,7 @@ def run(monkeypatch, company=None):
     def handler(req):
         url = str(req.url)
         asked.append(url)
-        if url == listings.LISTS["vanshb03/New-Grad-2027"]:
+        if url == listings.LISTS["vanshb03/New-Grad-2027"][1]:
             return httpx.Response(200, json=ROWS)
         if url.startswith("https://go.vansh.nyc/"):
             return httpx.Response(302, headers={"location": TARGETS[url.rsplit("/", 1)[1]]})
@@ -89,3 +89,37 @@ def test_skips_jobs_our_adapters_have(monkeypatch):
                                        "covered": {("google", "software engineer, early career", "mountain view, ca")}})
     assert "Stripe" not in jobs and "Google" not in jobs                     # same job ID / same company+title+place
     assert not any(u.endswith("go.vansh.nyc/3") for u in asked)              # covered: not even resolved
+
+
+def test_speedyapply_tables_with_and_without_salary():
+    # real NEW_GRAD_USA.md rows (Nov 2026): two table layouts
+    md = """| Company | Position | Location | Salary | Posting | Age |
+|---|---|---|---|---|---|
+| <a href="https://www.twitch.tv"><strong>Twitch</strong></a> | Software Engineer I - Payments | San Francisco, CA | $193k/yr | <a href="https://job-boards.greenhouse.io/twitch/jobs/8943553002"><img src="https://i.imgur.com/JpkfjIq.png" alt="Apply" width="70"/></a> | 1d |
+| Company | Position | Location | Posting | Age |
+|---|---|---|---|---|
+| <a href="https://www.rti.org"><strong>RTI</strong></a> | Early-Career Platform Engineer - Cloud Engineering | Durham, NC | <a href="https://uscareers-rtiinc.icims.com/jobs/14131/job"><img src="https://i.imgur.com/JpkfjIq.png" alt="Apply" width="70"/></a> | 3d |"""
+    now = 1795219200.0   # 2026-11-15
+    rows = listings.markdown_rows(md, now)
+    assert [(r["company_name"], r["title"], r["locations"], r["url"]) for r in rows] == [
+        ("Twitch", "Software Engineer I - Payments", ["San Francisco, CA"], "https://job-boards.greenhouse.io/twitch/jobs/8943553002"),
+        ("RTI", "Early-Career Platform Engineer - Cloud Engineering", ["Durham, NC"], "https://uscareers-rtiinc.icims.com/jobs/14131/job")]
+    assert rows[0]["date_posted"] == now - 86400 and rows[1]["date_posted"] == now - 3 * 86400
+    assert rows[0]["id"] == listings.markdown_rows(md, now)[0]["id"] and rows[0]["id"].startswith("sa-")   # stable
+
+
+def test_simplify_pages_are_skipped_and_short_links_only_are_resolved(monkeypatch):
+    async def get(url, **kw):
+        if url.endswith(".json"):
+            return httpx.Response(200, json=[
+                {"id": "s1", "active": True, "url": "https://simplify.jobs/p/abc", "company_name": "X", "title": "SWE", "locations": []},
+                {"id": "s2", "active": True, "url": "https://job-boards.greenhouse.io/x/jobs/1", "company_name": "X",
+                 "title": "SWE", "locations": []}], request=httpx.Request("GET", url))
+    client = type("C", (), {"get": staticmethod(get)})()
+    assert [r["id"] for r in asyncio.run(listings.rows(client, "SimplifyJobs/New-Grad-Positions"))] == ["s2"]
+    assert asyncio.run(listings.resolve(client, "https://job-boards.greenhouse.io/x/jobs/1")) == \
+        "https://job-boards.greenhouse.io/x/jobs/1"                       # no request for a board link
+
+
+def test_personal_use_lists_never_feed_committed_files():
+    assert listings.REUSABLE == ["vanshb03/New-Grad-2027"]
