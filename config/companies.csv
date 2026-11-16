@@ -1864,7 +1864,7 @@ Hippo Insurance,greenhouse,hippo70,3
 Hippocratic Ai,ashby,Hippocratic AI,3
 Hive,greenhouse,hive,3
 Hivemq,ashby,hivemq,3
-Home Depot,workday,homedepot|wd5|CareerDepotCanada,3
+Home Depot,workday,homedepot|wd5|careerdepot,3
 Homebase,ashby,homebase,3
 Homelight,greenhouse,homelight,3
 Hometap,greenhouse,hometap,3
@@ -3921,3 +3921,43 @@ Dexcom,eightfold,dexcom.eightfold.ai|dexcom.com,2
 Infineon Technologies,eightfold,jobs.infineon.com|infineon.com,2
 Eaton,eightfold,eaton.eightfold.ai|eaton.com,2
 MTSI,eightfold,mtsi-va.eightfold.ai|mtsi-va.com,2
+U.S. Bank,workday,usbank|wd1|us_bank_careers,3
+Argonne National Laboratory,workday,argonne|wd1|argonne_careers,3
+Guidewire,workday,guidewire|wd5|external,3
+Rocket,workday,quickenloans|wd5|rocket_careers,3
+SEI,workday,seic|wd1|sei_global_services,3
+Remitly,workday,remitly|wd5|remitly_careers,3
+FICO,workday,fico|wd1|external,3
+Baker Tilly,workday,bakertilly|wd5|btcareers,3
+Axos,workday,axos|wd5|axos,3
+Lennar,workday,lennar|wd1|lennar_jobs,3
+Etched,ashby,etched,3
+Mercor,ashby,mercor,3
+Clark Construction,workday,clark|wd503|clarkexternal,3
+Fluidstack,ashby,fluidstack,3
+Assembled,ashby,assembledhq,3
+Mountain America Credit Union,workday,macu|wd5|macu_careers,3
+Tessera Labs,ashby,tessera-labs,3
+CreatorIQ,ashby,creatoriq,3
+Smithfield Foods,workday,smithfieldfoods|wd1|careers,3
+Camunda,ashby,camunda,3
+Tutor Intelligence,lever,tutorintelligence,3
+Reducto,ashby,reducto,3
+Ascensus,workday,ascensushr|wd1|ascensuscareers,3
+Sailor Health,ashby,sailorhealth,3
+BeautyHealth (Hydrafacial),workday,beautyhealth|wd12|beautyhealthcareer,3
+Joyful Health,ashby,joyfulhealth,3
+SHI,workday,shi|wd12|shicareers,3
+Brown & Brown,workday,bbinsurance|wd1|careers,3
+Nike,workday,nike|wd1|nke,3
+Zoom,workday,zoom|wd5|zoom,3
+Fractal Analytics,workday,fractal|wd1|careers,3
+GSK,workday,gsk|wd5|gskcareers,3
+MedImpact,workday,medimpact|wd5|medimpact,3
+WGU,workday,wgu|wd5|external,3
+Omnissa,workday,omnissa|wd501|omnissa_external_career_site,3
+Unum,workday,unum|wd1|external,3
+GE Appliances (Haier),workday,haier|wd3|ge_appliances,3
+Wayve,ashby,wayve,3
+Temporal,ashby,temporal,3
+Sun Life Campus,workday,sunlife|wd3|campus,3

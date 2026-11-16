@@ -62,6 +62,16 @@ Sources: job links in vanshb03/New-Grad-2027 and Job Seek's board list (Greenhou
 and Workday boards only).
 python -m recon.discover --jobright  # which job system each company on Jobright's new-grad list uses
 
+### Imported from career-ops (Nov 2026)
+40 Tier 3 boards from the owner's career-ops company research, each tested before adding.
+VERIFIED (board confirmed by career-ops): U.S. Bank, Argonne National Laboratory, Guidewire, Rocket,
+SEI, Remitly, FICO, Baker Tilly, Axos, Lennar, Etched, Mercor, Clark Construction, Fluidstack,
+Assembled, Mountain America Credit Union, Tessera Labs, CreatorIQ, Smithfield Foods, Camunda,
+Tutor Intelligence, Reducto, Ascensus, Sailor Health, BeautyHealth (Hydrafacial), Joyful Health,
+SHI, Brown & Brown. LIKELY (board guessed, works when tested): Nike, Zoom, Fractal Analytics, GSK,
+MedImpact, WGU, Omnissa, Unum, GE Appliances (Haier), Wayve, Temporal. Also Sun Life Campus
+(Sun Life's campus board), and Home Depot moved from its Canada board to the US one.
+
 ## Job lists
 The Tier 1-2 lane also reads [vanshb03/New-Grad-2027](https://github.com/vanshb03/New-Grad-2027)
 (recon/sources/listings.py): jobs from companies we can't scan directly. Each row's link is
@@ -72,7 +82,7 @@ and [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-
 the owner's personal use only: they have no license, so nothing from them is committed here. Their
 rows live only in Recon's private database, simplify.jobs links are skipped, and recon.discover
 and recon.sponsors (which write committed files) read only the MIT list. A job any source
-already has (same job ID, link, or company + title + location) isn't added again.
+already has (same job ID, link, or company + title) isn't added again.
 A company's first run is saved as backlog, not shown as new.
 
 ## Eightfold
@@ -80,8 +90,10 @@ recon/sources/eightfold.py scans Eightfold career sites (Microsoft, Qualcomm, Er
 Scientific, Dexcom, Infineon, Eaton, MTSI) through their public search API; companies.csv slug is
 host|domain, e.g. apply.careers.microsoft.com|microsoft.com.
 
-## Jobright alert emails (optional)
-The Tier 1-2 lane reads Jobright's job-alert emails from your Gmail (recon/sources/gmail.py):
+## Jobright alert emails (off)
+Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
+reads, so the emails add nothing. Without the settings below the source does nothing.
+When set up, the Tier 1-2 lane would read Jobright's job-alert emails from your Gmail (recon/sources/gmail.py):
 read-only Gmail API, only messages from JOBRIGHT_SENDER. Each link is followed by its redirects
 alone; Recon never requests jobright.ai pages, logs into Jobright or reads its website.
 Settings (local env file and GitHub secrets): GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
