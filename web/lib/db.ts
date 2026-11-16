@@ -53,6 +53,7 @@ export type JobRow = {
   filings: number | null; // H-1B software filings (sponsors table), null if not a known sponsor
   my_rating: Rating | null; // your 👍 / 👎
   closed_at: string | null; // gone from the company's board
+  more: number; // Best bets: this company's jobs past the per-company limit (on its last shown card)
 };
 
 export const RATINGS = [1, -1] as const; // 👍, 👎
@@ -124,24 +125,41 @@ function orderBy(sql: postgres.Sql, f: Filters) {
   return sql`${key}, j.first_seen_at DESC, j.job_id`;
 }
 
-/** The tab's jobs after filters (the first `limit`), and how many match in all. */
-export async function listJobs(tab: Tab, f: Filters, limit: number): Promise<{ jobs: JobRow[]; matching: number }> {
+// Best bets shows at most this many jobs per company (the best by the current sort), with a link
+// to the rest; picking companies in the filter lifts it
+export const PER_COMPANY = 3;
+
+/** The tab's jobs after filters (the first `limit`), how many match in all, and how many of those
+ *  the per-company limit hides. */
+export async function listJobs(
+  tab: Tab,
+  f: Filters,
+  limit: number,
+): Promise<{ jobs: JobRow[]; matching: number; hidden: number }> {
   const sql = db();
   const where = sql`${tabWhere(sql, tab)} AND ${filterWhere(sql, f)}`;
+  const cap = tab === "best" && f.companies.length === 0 ? PER_COMPANY : 1_000_000;
+  // rank: the job's place within its company; pos: its place overall (same sort)
+  const ranked = sql`
+    SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.posted_on, j.site_updated_at,
+           j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_skills,
+           j.ai_level, j.ai_domain, j.ai_why, j.ai_missing, j.ai_resume, j.ai_max_years, j.openings,
+           j.role_type, j.level, j.via, j.my_rating, j.closed_at, sp.filings,
+           ROW_NUMBER() OVER (PARTITION BY j.company ORDER BY ${orderBy(sql, f)})::int AS company_rank,
+           COUNT(*) OVER (PARTITION BY j.company)::int AS company_total,
+           ROW_NUMBER() OVER (ORDER BY ${orderBy(sql, f)}) AS pos
+    FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
+    WHERE ${where}`;
   const [jobs, [count]] = await Promise.all([
     sql<JobRow[]>`
-      SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.posted_on, j.site_updated_at,
-             j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_skills,
-             j.ai_level, j.ai_domain, j.ai_why, j.ai_missing, j.ai_resume, j.ai_max_years, j.openings,
-             j.role_type, j.level, j.via, j.my_rating, j.closed_at, sp.filings
-      FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
-      WHERE ${where}
-      ORDER BY ${orderBy(sql, f)}
-      LIMIT ${limit}`,
-    sql<{ n: number }[]>`
-      SELECT COUNT(*)::int AS n FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company WHERE ${where}`,
+      SELECT *, CASE WHEN company_rank = ${cap} THEN company_total - ${cap} ELSE 0 END::int AS more
+      FROM (${ranked}) t WHERE company_rank <= ${cap} ORDER BY pos LIMIT ${limit}`,
+    sql<{ n: number; hidden: number }[]>`
+      SELECT COUNT(*) FILTER (WHERE company_rank <= ${cap})::int AS n,
+             COUNT(*) FILTER (WHERE company_rank > ${cap})::int AS hidden
+      FROM (${ranked}) t`,
   ]);
-  return { jobs, matching: count.n };
+  return { jobs, matching: count.n, hidden: count.hidden };
 }
 
 /** Companies with at least one match, for the company picker. */

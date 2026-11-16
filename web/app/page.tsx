@@ -5,8 +5,19 @@ import { FilterPanel } from "./filters";
 import { GoneButton } from "./gone-button";
 import { StatusButton } from "./status-button";
 import { ago, posted, updated } from "@/lib/dates";
-import { TABS, type JobRow, type Status, type Tab, listCompanies, listJobs, recentAdded, tabCounts } from "@/lib/db";
-import { DEFAULT_TAB, MAX_LIMIT, PAGE_SIZE, ROLES, type Role, activeCount, parseFilters, parseLimit, toQuery } from "@/lib/filters";
+import { PER_COMPANY, TABS, type JobRow, type Status, type Tab, listCompanies, listJobs, recentAdded, tabCounts } from "@/lib/db";
+import {
+  DEFAULT_TAB,
+  type Filters,
+  MAX_LIMIT,
+  PAGE_SIZE,
+  ROLES,
+  type Role,
+  activeCount,
+  parseFilters,
+  parseLimit,
+  toQuery,
+} from "@/lib/filters";
 
 const LABELS: Record<Tab, string> = {
   best: "Best bets",
@@ -31,7 +42,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const tab: Tab = TABS.includes(params.get("tab") as Tab) ? (params.get("tab") as Tab) : DEFAULT_TAB;
   const filters = parseFilters(params, tab);
   const limit = parseLimit(params.get("limit")); // not a filter: changing a filter starts over at one page
-  const [{ jobs, matching }, counts, companies, added] = await Promise.all([
+  const [{ jobs, matching, hidden }, counts, companies, added] = await Promise.all([
     listJobs(tab, filters, limit),
     tabCounts(),
     listCompanies(),
@@ -77,6 +88,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
           Showing <span className="font-medium text-zinc-800 dark:text-zinc-200">{matching.toLocaleString()}</span> of{" "}
           {counts[tab].toLocaleString()}
           {matching > limit && ` (first ${limit.toLocaleString()} listed)`}
+          {hidden > 0 && ` · ${hidden.toLocaleString()} more past ${PER_COMPANY} per company`}
         </p>
         {active > 0 && (
           <Link href={tab === DEFAULT_TAB ? "/" : `/?tab=${tab}`} className="font-medium text-zinc-800 underline dark:text-zinc-200">
@@ -87,7 +99,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
       <ul className="mt-3 space-y-3">
         {jobs.map((job) => (
-          <JobCard key={job.job_id} job={job} tab={tab} />
+          <JobCard key={job.job_id} job={job} tab={tab} filters={filters} />
         ))}
       </ul>
       {matching > limit && limit < MAX_LIMIT && (
@@ -106,7 +118,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   );
 }
 
-function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
+function JobCard({ job, tab, filters }: { job: JobRow; tab: Tab; filters: Filters }) {
   const autoSkipped = job.decision === "skip";
   const allFlags = !autoSkipped && job.reason ? job.reason.split(", ") : [];
   const flags = allFlags.filter((f) => !f.startsWith("exp cap"));
@@ -227,6 +239,15 @@ function JobCard({ job, tab }: { job: JobRow; tab: Tab }) {
           )}
           {job.ai_missing && <p className="text-zinc-500">Missing: {job.ai_missing}</p>}
         </div>
+      )}
+
+      {job.more > 0 && (
+        <Link
+          href={`/?${toQuery({ ...filters, companies: [job.company] }, tab)}`}
+          className="mt-3 block text-sm font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          +{job.more} more from {job.company} →
+        </Link>
       )}
 
       {tab === "skipped" && (
