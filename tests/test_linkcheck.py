@@ -181,3 +181,25 @@ def test_oracle_open_and_closed(monkeypatch):
         job("oracle:jpmc.fa.oraclecloud.com:210808784", "oracle", url + "210808784"),
     ], httpx.MockTransport(h)))}
     assert got == {"oracle:jpmc.fa.oraclecloud.com:999999999": False, "oracle:jpmc.fa.oraclecloud.com:210808784": True}
+
+
+def test_meta_open_gone_and_blocked(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a taken-down job redirects to /jobs/position-not-available/ (404)
+        path = req.url.path
+        if path == "/jobs/1000000000000001/":
+            return httpx.Response(302, headers={"location": "https://www.metacareers.com/jobs/position-not-available/"})
+        if path == "/jobs/position-not-available/":
+            return httpx.Response(404)
+        if path == "/jobs/222/":
+            return httpx.Response(302, headers={"location": "https://www.metacareers.com/checkpoint/block/"})
+        if path.startswith("/checkpoint"):
+            return httpx.Response(200, text="Security check")
+        return httpx.Response(200, text='<script type="application/ld+json">{"@type": "JobPosting", "title": "x"}</script>')
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("meta:meta:1000000000000001", "meta", "https://www.metacareers.com/jobs/1000000000000001/"),
+        job("meta:meta:1982695235662578", "meta", "https://www.metacareers.com/jobs/1982695235662578/"),
+        job("meta:meta:222", "meta", "https://www.metacareers.com/jobs/222/"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"meta:meta:1000000000000001": False, "meta:meta:1982695235662578": True, "meta:meta:222": None}

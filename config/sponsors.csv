@@ -5,7 +5,7 @@ Microsoft,7005,eightfold,Microsoft
 Tata Consultancy Services,6749,custom site,
 Google,6241,custom site,
 Infosys,4788,custom site,
-Meta,4190,custom site,
+Meta,4190,meta,Meta
 Apple,3966,custom site,
 Walmart,2861,workday,Walmart
 Deloitte,2401,avature,
@@ -7176,7 +7176,7 @@ LONG FINCH TECHNOLOGIES LLC,4,,
 "Affectiva, Inc.",4,,
 Aceron Group LLC,4,,
 Finix Payments Inc.,4,,
-"Meta Payments Inc. (formerly known as Facebook Payments, Inc)",4,,
+"Meta Payments Inc. (formerly known as Facebook Payments, Inc)",4,meta,Meta
 "AIG Global Operations, Inc.",4,,
 "QLYTIX, INC.",4,,
 "Marriott Ownership Resorts, Inc.",4,,

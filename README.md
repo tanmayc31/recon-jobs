@@ -98,6 +98,12 @@ Staples, DTCC, BNY, Honeywell, Marriott International, Sherwin-Williams) through
 career sites call; companies.csv slug is host|site, e.g. jpmc.fa.oraclecloud.com|CX_1001. Every US
 posting is read (200 a page), so a run's listing is complete and closes jobs that are gone.
 
+## Meta
+recon/sources/meta.py reads metacareers.com through the same public requests its careers site makes,
+signed out: the job search page (for its anonymous request token), its job search query (every
+open job in one answer), and each new matching job's page (JobPosting JSON-LD). If Meta answers
+with a login or security check, the run fails with Blocked and Recon doesn't work around it.
+
 ## Jobright alert emails (off)
 Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
 reads, so the emails add nothing. Without the settings below the source does nothing.

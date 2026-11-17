@@ -83,6 +83,12 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       if (r.status !== 200) return "unknown";
       return ((await r.json()).items ?? []).length ? "open" : "gone";
     }
+    if (source === "meta") {
+      // a taken-down job redirects to /jobs/position-not-available/ with a 404 (recon/sources/meta.py)
+      const r = await get(`https://www.metacareers.com/jobs/${id}/`);
+      if (r.status === 404 || new URL(r.url).pathname.startsWith("/jobs/position-not-available")) return "gone";
+      return r.status === 200 && new URL(r.url).pathname.includes(id) ? "open" : "unknown";
+    }
     if (source === "amazon") {
       for (const req of (job.source_ids ?? "").split(",").filter(Boolean)) {
         if ((await get(`https://www.amazon.jobs/en/jobs/${req}`)).status === 200) return "open";

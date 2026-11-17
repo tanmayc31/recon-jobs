@@ -14,6 +14,7 @@ def test_keeps_entry_roles():
     assert is_match(job("Forward Deployed Engineer"))
     assert is_match(job("Software Engineer II"))
     assert is_match(job("Software Engineer 2, Backend"))
+    assert is_match(job("Technology Leadership Development Program - Software Engineer"))
 
 
 def test_drops_senior_students_non_eng():
@@ -37,7 +38,9 @@ def test_drops_senior_students_non_eng():
               "Software Engineer - VP - Cloud Platform",
               "Software Engineer 6 - Feature Infrastructure", "Software Engineering 5 - Ads Conversion Attribution",
               "Software Engineer in Test 5 - Android Player",
-              "Software Development Engineer in Test 5, TV & Web Player - Developer Experience & Release Quality"]:
+              "Software Development Engineer in Test 5, TV & Web Player - Developer Experience & Release Quality",
+              "Software Engineer, Container Infrastructure (Technical Leadership)",
+              "Software Engineer Leadership, Machine Learning RecSys"]:
         assert not is_match(job(t)), t
 
 

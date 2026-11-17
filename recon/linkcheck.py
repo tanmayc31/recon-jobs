@@ -20,11 +20,11 @@ import httpx
 
 from recon.env import load_env
 from recon.main import HEADERS, quiet
-from recon.sources import ashby, eightfold, listings, oracle
+from recon.sources import ashby, eightfold, listings, meta, oracle
 from recon.store import Store
 
 DELAY = 0.3
-PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2, "list": 3, "eightfold": 2, "oracle": 2}   # per site, polite
+PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2, "list": 3, "eightfold": 2, "oracle": 2, "meta": 2}   # per site, polite
 SAMPLE = {"workday": 20, "greenhouse": 5, "lever": 5, "ashby": 5, "amazon": 5}
 COLS = ["job_id", "source", "url", "source_ids", "company", "title"]
 WORKDAY = [  # public job URL -> parts of the detail API URL
@@ -104,6 +104,11 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
     if source == "oracle":   # job_id "oracle:<host>:<requisition id>"; site from the job's link
         m = re.search(r"/sites/([^/]+)/job/", job["url"])
         return await oracle.details(client, slug, m[1] if m else "CX_1", ids(job)[0]) is not None
+    if source == "meta":   # a taken-down job redirects to /jobs/position-not-available/ (404)
+        try:
+            return await meta.details(client, ids(job)[0]) is not None
+        except meta.Blocked:
+            return None   # a login or security check: can't tell, and don't work around it
     if source == "ashby":   # no per-job endpoint: is it on the board?
         if slug not in boards:
             boards[slug] = asyncio.ensure_future(ashby_board(client, slug))   # one fetch per board
