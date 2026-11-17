@@ -34,7 +34,10 @@ def test_drops_senior_students_non_eng():
               "Software Engineer – 5",
               "Vice President, AI / Machine Learning Software Engineer",
               "Engineering-Seattle, WA-Vice President, Software Engineering Higher testing",
-              "Software Engineer - VP - Cloud Platform"]:
+              "Software Engineer - VP - Cloud Platform",
+              "Software Engineer 6 - Feature Infrastructure", "Software Engineering 5 - Ads Conversion Attribution",
+              "Software Engineer in Test 5 - Android Player",
+              "Software Development Engineer in Test 5, TV & Web Player - Developer Experience & Release Quality"]:
         assert not is_match(job(t)), t
 
 

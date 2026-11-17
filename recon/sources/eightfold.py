@@ -4,8 +4,14 @@ apply.careers.microsoft.com|microsoft.com.
 Public search API (/api/pcsx/search): 10 positions a page, filtered to the United States and
 searched for SEARCHES (the title filter needs a software role anyway). Descriptions come from
 /api/pcsx/position_details, only for new jobs that pass the title + location filter.
+Sites still on Eightfold's older API (Netflix: "PCSX is not enabled") are read through
+/api/apply/v2/jobs instead, the one their career site loads.
+Results are ranked by relevance: a search stops after IRRELEVANT_PAGES full pages in a row with no
+engineering title (Starbucks' "software" search runs on into thousands of barista jobs; Microsoft's
+has single such pages between real ones).
 """
 import asyncio
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -19,6 +25,12 @@ PAGE = 10           # the API's fixed page size
 DELAY = 0.4         # seconds between requests, be polite
 MAX_PAGES = 200     # safety stop per search (Microsoft "software", US: ~86 pages)
 RETRIES = 3         # rate limited (non-JSON or 429): wait 1s, 2s, 4s
+IRRELEVANT_PAGES = 3
+RELEVANT = re.compile(r"engineer|developer|software|\bsw?de\b|\bswe\b|programmer", re.I)
+
+
+class OlderApi(Exception):
+    """The site answers 403 "PCSX is not enabled": it uses /api/apply/v2."""
 
 
 def parse_slug(slug: str) -> tuple[str, str]:
@@ -32,6 +44,8 @@ async def get_json(client: httpx.AsyncClient, url: str, params: dict) -> dict | 
         r = await client.get(url, params=params)
         if r.status_code == 404:
             return None
+        if r.status_code == 403 and "PCSX is not enabled" in r.text:
+            raise OlderApi(url)
         if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
             return r.json()
         if attempt == RETRIES:
@@ -40,24 +54,52 @@ async def get_json(client: httpx.AsyncClient, url: str, params: dict) -> dict | 
         await asyncio.sleep(2 ** attempt)
 
 
+def from_v2(p: dict) -> dict:
+    """An /api/apply/v2 position in the /api/pcsx shape."""
+    return {"id": p["id"], "name": p.get("name", ""), "standardizedLocations": p.get("locations") or [],
+            "postedTs": p.get("t_create"), "positionUrl": httpx.URL(p["canonicalPositionUrl"]).path
+            if p.get("canonicalPositionUrl") else None}
+
+
 async def details(client: httpx.AsyncClient, host: str, domain: str, pid) -> dict | None:
-    d = await get_json(client, f"https://{host}/api/pcsx/position_details",
-                       {"position_id": pid, "domain": domain, "hl": "en"})
-    return (d or {}).get("data") or None
+    """jobDescription and publicUrl, or None if the site no longer has the job (404)."""
+    try:
+        d = await get_json(client, f"https://{host}/api/pcsx/position_details",
+                           {"position_id": pid, "domain": domain, "hl": "en"})
+        return (d or {}).get("data") or None
+    except OlderApi:
+        d = await get_json(client, f"https://{host}/api/apply/v2/jobs/{pid}", {"domain": domain})
+        return {"jobDescription": d.get("job_description"), "publicUrl": d.get("canonicalPositionUrl")} if d else None
+
+
+async def search(client: httpx.AsyncClient, host: str, domain: str, query: str, start: int, v2: bool) -> list[dict]:
+    params = {"domain": domain, "query": query, "location": "United States", "start": start}
+    if v2:
+        d = await get_json(client, f"https://{host}/api/apply/v2/jobs", params | {"num": PAGE})
+        return [from_v2(p) for p in (d or {}).get("positions") or []]
+    d = await get_json(client, f"https://{host}/api/pcsx/search", params)
+    return ((d or {}).get("data") or {}).get("positions") or []
 
 
 async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
     host, domain = parse_slug(company["slug"])
-    found = {}
+    found, v2 = {}, False
     for query in SEARCHES:
+        irrelevant = 0
         for page in range(MAX_PAGES):
-            d = await get_json(client, f"https://{host}/api/pcsx/search",
-                               {"domain": domain, "query": query, "location": "United States", "start": page * PAGE})
-            positions = ((d or {}).get("data") or {}).get("positions") or []
+            try:
+                positions = await search(client, host, domain, query, page * PAGE, v2)
+            except OlderApi:
+                v2 = True
+                positions = await search(client, host, domain, query, page * PAGE, v2)
             new = [p for p in positions if p["id"] not in found]
             found |= {p["id"]: p for p in new}
             await asyncio.sleep(DELAY)
             if len(positions) < PAGE or not new:
+                break
+            irrelevant = 0 if any(RELEVANT.search(p.get("name", "")) for p in positions) else irrelevant + 1
+            if irrelevant == IRRELEVANT_PAGES:
+                company["partial"] = True   # relevance ran out; what's past it wasn't seen
                 break
         else:
             company["partial"] = True   # stopped at MAX_PAGES: missing jobs may still be open

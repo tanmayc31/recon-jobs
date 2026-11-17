@@ -68,7 +68,11 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
     if (source === "eightfold") {
       // slug is the company's domain; the job's own host answers its API
       const host = new URL(job.url).host;
-      const r = await get(`https://${host}/api/pcsx/position_details?position_id=${id}&domain=${slug}&hl=en`);
+      let r = await get(`https://${host}/api/pcsx/position_details?position_id=${id}&domain=${slug}&hl=en`);
+      if (r.status === 403 && (await r.text()).includes("PCSX is not enabled")) {
+        // older Eightfold API (Netflix)
+        r = await get(`https://${host}/api/apply/v2/jobs/${id}?domain=${slug}`);
+      }
       return r.status === 200 ? "open" : r.status === 404 ? "gone" : "unknown";
     }
     if (source === "oracle") {

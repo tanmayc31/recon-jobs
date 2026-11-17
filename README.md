@@ -87,8 +87,9 @@ A company's first run is saved as backlog, not shown as new.
 
 ## Eightfold
 recon/sources/eightfold.py scans Eightfold career sites (Microsoft, Qualcomm, Ericsson, Boston
-Scientific, Dexcom, Infineon, Eaton, MTSI) through their public search API; companies.csv slug is
-host|domain, e.g. apply.careers.microsoft.com|microsoft.com.
+Scientific, Dexcom, Infineon, Eaton, MTSI, Netflix, Starbucks) through their public search API;
+companies.csv slug is host|domain, e.g. apply.careers.microsoft.com|microsoft.com. Netflix is on
+Eightfold's older API (/api/apply/v2), used automatically when a site answers "PCSX is not enabled".
 
 ## Oracle HCM
 recon/sources/oracle.py scans Oracle Recruiting Cloud career sites (JPMorgan Chase, Oracle, Goldman

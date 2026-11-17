@@ -24,7 +24,8 @@ EXCLUDE = re.compile(
     # specialty tracks (ML hardware, OS, devices) - not general SWE
     r"compilers?|accelerators?|kernel|silicon|firmware|embedded|robotics|consumer devices|"
     r"tpus?|gpus?|hpc|rdma)\b"
-    r"|engineer\s*[-–—]?\s*(3|4|5)\b|\bl[5-9]\b",
+    # levels 3+ (Netflix: 5 senior, 6 staff), also "Engineering 5" and "Engineer in Test 5"
+    r"|engineer(ing)?(\s+in\s+test)?\s*[-–—]?\s*[3-9]\b|\bl[5-9]\b",
     re.I,
 )
 
