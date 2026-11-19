@@ -32,8 +32,8 @@ export function workdayApi(url: string): string | null {
   return null;
 }
 
-async function get(url: string): Promise<Response> {
-  return fetch(url, { headers: HEADERS, cache: "no-store", signal: AbortSignal.timeout(15000) });
+async function get(url: string, ms = 15000): Promise<Response> {
+  return fetch(url, { headers: HEADERS, cache: "no-store", signal: AbortSignal.timeout(ms) });
 }
 
 export async function checkOpen(job: OpenCheck): Promise<Verdict> {
@@ -88,6 +88,17 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       const r = await get(`https://www.metacareers.com/jobs/${id}/`);
       if (r.status === 404 || new URL(r.url).pathname.startsWith("/jobs/position-not-available")) return "gone";
       return r.status === 200 && new URL(r.url).pathname.includes(id) ? "open" : "unknown";
+    }
+    if (source === "icims") {
+      // slug is the site's host; the job's page answers 410 (or 404) when it's gone
+      const r = await get(`https://${slug}/jobs/${id}/job?in_iframe=1`);
+      return r.status === 200 ? "open" : r.status === 410 || r.status === 404 ? "gone" : "unknown";
+    }
+    if (source === "apple") {
+      // the job's details (the careers site's own request): 404 when Apple took it down. Apple
+      // answers in 3-60 s
+      const r = await get(`https://jobs.apple.com/api/v1/jobDetails/${id}`, 45000);
+      return r.status === 200 ? "open" : r.status === 404 ? "gone" : "unknown";
     }
     if (source === "smartrecruiters") {
       // the posting's endpoint: 404, or active: false, when it's gone (recon/sources/smartrecruiters.py)

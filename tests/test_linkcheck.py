@@ -242,3 +242,38 @@ def test_smartrecruiters_open_and_closed(monkeypatch):
     ], httpx.MockTransport(h)))}
     assert got == {"smartrecruiters:ServiceNow:1": False, "smartrecruiters:ServiceNow:2": False,
                    "smartrecruiters:ServiceNow:744000162409639": True}
+
+
+def test_apple_open_gone_and_blocked(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a job Apple took down answers 404 jobsite.general.serviceError
+        pid = req.url.path.rsplit("/", 1)[-1]
+        if pid == "100000001":
+            return httpx.Response(404, json={"error": "jobsite.general.serviceError"})
+        if pid == "222":
+            return httpx.Response(403, text="Access denied")
+        return httpx.Response(200, json={"res": {"id": f"REQ-{pid}"}})
+    url = "https://jobs.apple.com/en-us/details/"
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("apple:apple:100000001", "apple", url + "100000001/x"),
+        job("apple:apple:200694596", "apple", url + "200694596/engineering-project-manager"),
+        job("apple:apple:222", "apple", url + "222/x"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"apple:apple:100000001": False, "apple:apple:200694596": True, "apple:apple:222": None}
+
+
+def test_icims_open_and_closed(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a closed iCIMS job's page answers 410 "This job is no longer open"
+        assert req.url.host == "career-schwab.icims.com"
+        if "/jobs/999999/" in req.url.path:
+            return httpx.Response(410, text="no longer open")
+        return httpx.Response(200, text='<script type="application/ld+json">{"@type": "JobPosting", "title": "x"}</script>')
+    base = "https://career-schwab.icims.com/jobs/"
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("icims:career-schwab.icims.com:999999", "icims", base + "999999/x/job"),
+        job("icims:career-schwab.icims.com:130760", "icims", base + "130760/sr-dr-engineer/job"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"icims:career-schwab.icims.com:999999": False, "icims:career-schwab.icims.com:130760": True}

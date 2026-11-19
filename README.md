@@ -117,6 +117,18 @@ Tech Mahindra) through the public Posting API: every US posting, then descriptio
 new matches; companies.csv slug is the identifier in careers.smartrecruiters.com/<slug>. A gone
 posting answers 404 (or active: false).
 
+## Apple
+recon/sources/apple.py reads jobs.apple.com through the same public requests its careers site makes,
+signed out: its Teams suggestions, its CSRF token and search (US, software subteams), and each new
+match's details. Details take 3-60 s each, so a run fetches what fits in 4 minutes and the rest
+follow in the next runs (saved as unverified meanwhile). A block or challenge stops the run.
+
+## iCIMS
+recon/sources/icims.py reads iCIMS career sites (Charles Schwab, ICE, Liberty Mutual, United
+Wholesale Mortgage, Cotiviti) through their public job search pages and each new match's job page
+(JobPosting JSON-LD); companies.csv slug is the site's host, e.g. career-schwab.icims.com. A closed
+job's page answers 410.
+
 ## Jobright alert emails (off)
 Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
 reads, so the emails add nothing. Without the settings below the source does nothing.

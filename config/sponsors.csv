@@ -6,7 +6,7 @@ Tata Consultancy Services,6749,custom site,
 Google,6241,google,Google
 Infosys,4788,custom site,
 Meta,4190,meta,Meta
-Apple,3966,custom site,
+Apple,3966,apple,Apple
 Walmart,2861,workday,Walmart
 Deloitte,2401,avature,
 Capgemini,2394,custom site,
@@ -51,7 +51,7 @@ SKILLTUNE TECHNOLOGIES INC,559,unknown,
 KFORCE INC.,531,unknown,
 ServiceNow,525,smartrecruiters,ServiceNow
 "Comcast Cable Communications, LLC",516,workday,Comcast
-"Charles Schwab & Company, Inc.",514,icims,
+"Charles Schwab & Company, Inc.",514,icims,Charles Schwab
 "Optum Services, Inc.",505,taleo,
 Morgan Stanley,501,workday,Morgan Stanley
 American Express,498,oracle,American Express
@@ -82,7 +82,7 @@ eBay,361,custom site,
 "DoorDash, Inc.",354,greenhouse,DoorDash
 "Elevance Health, Inc.",344,workday,Elevance Health
 DFS Corporate Services LLC,342,unknown,
-ICE,321,icims,
+ICE,321,icims,ICE
 "The MathWorks, Inc.",314,custom site,
 Bloomberg,314,avature,
 Coforge Limited,313,custom site,
@@ -170,7 +170,7 @@ Deere & Company,150,unknown,
 Collaborate Solutions Inc.,149,unknown,
 VISTA APPLIED SOLUTIONS GROUP INC,148,custom site,
 "Avco Consulting, Inc.",147,custom site,
-"United Wholesale Mortgage, LLC",144,icims,
+"United Wholesale Mortgage, LLC",144,icims,United Wholesale Mortgage
 "Paycom Payroll, LLC",144,paycom,
 Esri,143,greenhouse,Esri
 "Indeed, Inc.",141,custom site,
@@ -222,7 +222,7 @@ Palayekar Companies Inc,118,unknown,
 "Cox Automotive Corporate Services, LLC",115,workday,Cox
 "ValueMomentum, Inc.",115,custom site,
 "Slalom, Inc.",114,custom site,
-"Cotiviti, Inc.",113,icims,
+"Cotiviti, Inc.",113,icims,Cotiviti
 "Iris Software, Inc",112,custom site,
 "KPIT Technologies, Inc.",111,custom site,
 "Experis US, LLC",111,custom site,
@@ -263,7 +263,7 @@ Wayfair LLC,96,unknown,
 "7-Eleven, Inc.",93,workday,7-Eleven
 The Bank of New York Mellon,92,oracle,BNY
 "Roku, Inc.",92,greenhouse,Roku
-Liberty Mutual Technology Group Inc.,92,icims,
+Liberty Mutual Technology Group Inc.,92,icims,Liberty Mutual
 3i INFOTECH INC.,92,unknown,
 LPL Financial LLC,92,workday,LPL Financial Holdings
 Epsilon Data Management LLC,91,unknown,
@@ -808,7 +808,7 @@ APEX IT SERVICES LLC,35,,
 Hadiamondstar Software Solutions LLC,35,,
 GLOBAL SUMI TECHNOLOGIES INC,35,,
 Jefferies LLC,35,,
-"ICE DATA SERVICES, INC.",35,,
+"ICE DATA SERVICES, INC.",35,,ICE
 Lam Research Corporation,35,,
 Massachusetts Mutual Life Insurance Company,35,,
 CSC Covansys Corporation,35,,
@@ -1955,7 +1955,7 @@ Code Gravity LLC,17,,
 Toyota Material Handling Inc.,17,,
 IBG LLC,17,,
 "Ryder System, Inc.",17,,
-"ICE DATA ANALYTICS, LLC",17,,
+"ICE DATA ANALYTICS, LLC",17,,ICE
 "Beyond, Inc.",17,,
 "Smart ERP Solutions, Inc.",17,,
 Virtual Networx Inc.,17,,
@@ -2384,7 +2384,7 @@ Global Alliant Inc,15,,
 Tango Management Consulting LLC,15,,
 "Vitu, Inc.",15,,
 TEKNOWLEAP INC,15,,
-ICE CLEAR CREDIT LLC,15,,
+ICE CLEAR CREDIT LLC,15,,ICE
 "Tek Labs, Inc.",15,,
 "Open Access Technology International, Inc.",15,,
 Teknocrux LLC,15,,
@@ -3676,7 +3676,7 @@ Texas A&M University,9,,
 "PRINCETON IT SERVICES, INC.",9,,
 "Maayee, Inc.",9,,
 AGCO Corporation,9,,
-ICE DATA CONNECTIVITY & FEEDS INC.,9,,
+ICE DATA CONNECTIVITY & FEEDS INC.,9,,ICE
 9M Solutions Inc.,9,,
 "OPULENTSOFT, LLC.",9,,
 O.C. Tanner Company,9,,
@@ -8425,7 +8425,7 @@ Doma Workforce Inc.,3,,
 "Williams Scotsman, Inc.",3,,
 Brandon Consulting Associates Inc.,3,,
 Eneric Petroleum Corporation,3,,
-Liberty Mutual Insurance Company,3,,
+Liberty Mutual Insurance Company,3,,Liberty Mutual
 "CNO Services, LLC",3,,
 Claritas Rx Inc.,3,,
 AKNISH TECHNOLOGIES CORPORATION,3,,
