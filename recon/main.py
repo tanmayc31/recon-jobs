@@ -12,13 +12,14 @@ import httpx
 from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
-from recon.sources import (amazon, apple, ashby, eightfold, gmail, google, greenhouse, icims, lever, listings, meta,
-                           oracle, smartrecruiters, workday)
+from recon.sources import (amazon, apple, ashby, bytedance, eightfold, gmail, google, greenhouse, icims, lever, listings,
+                           meta, oracle, smartrecruiters, workday)
 from recon.store import MISSES_TO_CLOSE, Store, fresh, now
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon,
            "listings": listings, "gmail": gmail, "eightfold": eightfold, "oracle": oracle, "meta": meta, "google": google,
-           "smartrecruiters": smartrecruiters, "apple": apple, "icims": icims}
+           "smartrecruiters": smartrecruiters, "apple": apple, "icims": icims,
+           "bytedance": bytedance}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
@@ -29,6 +30,8 @@ PARALLEL = {"workday": 10, "other": 20}
 DEADLINE = 8 * 60
 COMPANY_TIMEOUT = 2 * 60
 LIST_TIMEOUT = 6 * 60   # a job list resolves every new row's link; the first run has hundreds
+# sources that read a company's whole board: job lists add nothing for these companies
+COMPLETE = {"greenhouse", "lever", "ashby", "google", "meta", "apple", "bytedance", "oracle", "smartrecruiters", "icims"}
 SLOW = {"listings", "gmail", "eightfold", "oracle", "meta", "google", "apple"}   # LIST_TIMEOUT: Eightfold pages 10 jobs at a time,
                                                     # Oracle reads every US posting (Safeway ~8,600),
                                                     # Meta's first run opens ~100 job pages,
@@ -105,9 +108,10 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
         c["known"] = known   # adapters skip description requests for these job IDs
     if any(c["ats"] == "listings" for c in companies):
         list_ids, covered, urls = store.list_ids(), store.covered_keys(), store.job_urls()
+        direct = {c["company"].lower() for c in load_companies() if c["ats"] in COMPLETE}
         for c in companies:
             if c["ats"] == "listings":
-                c["list_ids"], c["covered"], c["urls"] = list_ids, covered, urls
+                c["list_ids"], c["covered"], c["urls"], c["direct"] = list_ids, covered, urls, direct
     store.close()
     random.shuffle(companies)   # if the time budget runs out, a different set waits each run
     sems = {lane: asyncio.Semaphore(n) for lane, n in PARALLEL.items()}

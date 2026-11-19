@@ -73,3 +73,11 @@ def test_sponsor_rows_add_up_employers_per_company(tmp_path):
                     "Cognizant,10317,custom site,\n")
     assert sponsor_rows(path) == [("Fidelity Investments", 2069, "Fidelity"),
                                   ("CVS Health", 1112, "CVS Health; Caremark LLC; Aetna Resources LLC")]
+
+
+def test_one_employer_row_for_two_companies(tmp_path):
+    # DOL files ByteDance and TikTok together; both companies get the badge
+    p = tmp_path / "sponsors.csv"
+    p.write_text("employer,swe_filings,ats,recon_company\r\nByteDance/TikTok,1401,bytedance,ByteDance;TikTok\r\n")
+    from recon.sponsors import sponsor_rows
+    assert sorted(sponsor_rows(p)) == [("ByteDance", 1401, "ByteDance/TikTok"), ("TikTok", 1401, "ByteDance/TikTok")]

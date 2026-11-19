@@ -91,6 +91,14 @@ def test_skips_jobs_our_adapters_have(monkeypatch):
     assert not any(u.endswith("go.vansh.nyc/3") for u in asked)              # covered: not even resolved
 
 
+def test_skips_companies_we_scan_whole_boards_of(monkeypatch):
+    # a list retitles jobs (TikTok's "... - 2027 Start (PhD)"): for a directly scanned company the
+    # careers site is the truth, so the list adds nothing for it
+    jobs, asked, _ = run(monkeypatch, {"direct": {"google"}})
+    assert "Google" not in jobs and "Stripe" in jobs
+    assert not any(u.endswith("go.vansh.nyc/3") for u in asked)              # not even resolved
+
+
 def test_speedyapply_tables_with_and_without_salary():
     # real NEW_GRAD_USA.md rows (Nov 2026): two table layouts
     md = """| Company | Position | Location | Salary | Posting | Age |

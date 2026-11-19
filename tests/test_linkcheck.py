@@ -277,3 +277,16 @@ def test_icims_open_and_closed(monkeypatch):
         job("icims:career-schwab.icims.com:130760", "icims", base + "130760/sr-dr-engineer/job"),
     ], httpx.MockTransport(h)))}
     assert got == {"icims:career-schwab.icims.com:999999": False, "icims:career-schwab.icims.com:130760": True}
+
+
+def test_bytedance_open_and_gone(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a job that's gone has an empty <title> on lifeattiktok.com / joinbytedance.com
+        title = "" if req.url.path.endswith("/1000000000000000001") else "Software Engineer"
+        return httpx.Response(200, text=f"<title>{title}</title>")
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("bytedance:jobs:1000000000000000001", "bytedance", "https://joinbytedance.com/search/1000000000000000001"),
+        job("bytedance:jobs:7594626946647492917", "bytedance", "https://lifeattiktok.com/search/7594626946647492917"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"bytedance:jobs:1000000000000000001": False, "bytedance:jobs:7594626946647492917": True}

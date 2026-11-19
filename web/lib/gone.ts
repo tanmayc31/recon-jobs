@@ -89,6 +89,13 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       if (r.status === 404 || new URL(r.url).pathname.startsWith("/jobs/position-not-available")) return "gone";
       return r.status === 200 && new URL(r.url).pathname.includes(id) ? "open" : "unknown";
     }
+    if (source === "bytedance") {
+      // the job's page (lifeattiktok.com / joinbytedance.com) has its title in <title>; empty when gone
+      const r = await get(job.url);
+      if (r.status !== 200) return "unknown";
+      const title = (await r.text()).match(/<title>([\s\S]*?)<\/title>/)?.[1]?.trim();
+      return title ? "open" : "gone";
+    }
     if (source === "icims") {
       // slug is the site's host; the job's page answers 410 (or 404) when it's gone
       const r = await get(`https://${slug}/jobs/${id}/job?in_iframe=1`);

@@ -162,15 +162,18 @@ async def describe(client: httpx.AsyncClient, job: Job, url: str, boards: dict) 
 
 async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
     """company: the list's companies.csv row, plus from main: known (job IDs), list_ids (rows
-    already saved, not resolved again), covered ((company, title) of every saved job) and
-    urls (every saved job's link): a job Recon has from any source isn't added again."""
+    already saved, not resolved again), covered ((company, title) of every saved job), urls
+    (every saved job's link) and direct (companies whose whole board Recon reads itself): a job
+    Recon has from any source isn't added again, nor any job at a directly scanned company (the
+    lists retitle jobs: TikTok's "...Graduate - 2027 Start (PhD)" became "New Grad 2027: ...")."""
     company["partial"] = True   # a list isn't a company's whole board: never used to auto-close
     repo, done = company["slug"], set(company.get("list_ids", ()))
     covered, urls = company.get("covered", set()), company.get("urls", set())
+    direct = company.get("direct", set())
     todo = []
     for row in await rows(client, repo):
         job = base_job(row, repo)
-        if row["id"] in done or row["url"] in urls or \
+        if row["id"] in done or row["url"] in urls or job.company.lower() in direct or \
                 (job.company.lower(), job.title.lower()) in covered:
             continue
         if classify(job)[0]:   # title + location before any request

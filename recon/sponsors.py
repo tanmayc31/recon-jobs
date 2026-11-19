@@ -459,9 +459,10 @@ def sponsor_rows(path: Path = SPONSORS) -> list[tuple[str, int, str]]:
     filings, employers = Counter(), defaultdict(list)
     with open(path) as f:
         for r in csv.DictReader(f):
-            if r["recon_company"]:
-                filings[r["recon_company"]] += int(r["swe_filings"])
-                employers[r["recon_company"]].append(r["employer"])
+            # several companies on one employer row ("ByteDance;TikTok"): each gets the badge
+            for company in filter(None, r["recon_company"].split(";")):
+                filings[company] += int(r["swe_filings"])
+                employers[company].append(r["employer"])
     return [(c, n, "; ".join(employers[c])) for c, n in filings.most_common()]
 
 

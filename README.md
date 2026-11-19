@@ -129,6 +129,14 @@ Wholesale Mortgage, Cotiviti) through their public job search pages and each new
 (JobPosting JSON-LD); companies.csv slug is the site's host, e.g. career-schwab.icims.com. A closed
 job's page answers 410.
 
+## ByteDance and TikTok
+recon/sources/bytedance.py reads joinbytedance.com and lifeattiktok.com through the same public
+requests the sites make (their filters for the US cities, their job search, with the header the
+sites send): every US job with its description, no per-job requests. A job on both sites is one
+job. The open check reads the job's page (an empty title when it's gone). Job lists add nothing
+for companies whose whole board Recon reads itself (main.COMPLETE): lists retitle jobs ("New Grad
+2027: ..." for "... - 2027 Start (PhD)").
+
 ## Jobright alert emails (off)
 Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
 reads, so the emails add nothing. Without the settings below the source does nothing.
