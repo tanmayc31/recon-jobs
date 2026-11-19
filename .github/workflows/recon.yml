@@ -6,13 +6,15 @@ name: recon
 #   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
 #   3-workday  Tier 3 Workday                       every 6 h
 # Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
-# filter rules reach old jobs. Daily open check (GitHub cron): gone jobs leave New/Backlog/Later.
+# filter rules reach old jobs. Daily open check (GitHub cron): gone jobs leave New/Backlog/Later;
+# Best bets and New are checked every 3 hours, so a dead job leaves before you click it.
 # AI judge: after each normal 1-2 run, scores up to 48 unjudged matches from any lane,
 # 6 per Gemini request.
 on:
   schedule:
     - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US
     - cron: "0 10 * * *"     # daily open check: 10:00 UTC = early morning US
+    - cron: "30 */3 * * *"   # Best bets and New open check, every 3 hours
   workflow_dispatch:          # cron-job.org and the manual "Run workflow" button
     inputs:
       lane:
@@ -86,6 +88,27 @@ jobs:
           RECON_PERSONAL_LISTS: ${{ vars.RECON_PERSONAL_LISTS }}
           CI: "true"
         run: python -m recon.linkcheck --recheck-open
+
+  open-check-best:
+    # every 3 hours: the jobs you open first (Best bets, New), same checks as the daily one
+    if: github.event.schedule == '30 */3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Browser for job-list jobs on company sites
+        run: pip install playwright==1.65.1 && python -m playwright install --with-deps chromium
+      - name: Close gone Best bets and New jobs (counts only; logs are public)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RECON_PERSONAL_LISTS: ${{ vars.RECON_PERSONAL_LISTS }}
+          CI: "true"
+        run: python -m recon.linkcheck --recheck-open --best
 
   add:
     # jobs pasted into the dashboard's "Add job" box and "AI prep" requests: the dashboard starts lane "add" right away;

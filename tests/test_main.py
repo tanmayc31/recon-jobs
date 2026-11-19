@@ -314,3 +314,20 @@ def test_the_same_posting_from_two_lists_is_kept_once():
              ("speedy", listed("sa-2", "https://www.google.com/about/careers/2", title="Software Engineer II")),
              ("Stripe", job(1))]                                                         # boards: untouched
     assert [j.job_id for _, j in main.one_copy(pairs)] == ["list:v1", "list:sa-2", "greenhouse:co:1"]
+
+
+def test_missed_once_and_its_site_says_gone_closes_at_once(tmp_path, monkeypatch, capsys):
+    # Northwestern Mutual (Workday Tier 3, every 6 h): gone from the board at 14:09, closed only at
+    # 20:09 after a second miss. Now the first miss asks the site's API.
+    from recon import linkcheck
+    monkeypatch.delenv("CI", raising=False)
+    run_once(tmp_path, monkeypatch, [job(1), job(2)])
+    asked = []
+
+    async def gone_now(jobs, transport=None):
+        asked.extend(j["job_id"] for j in jobs)
+        return ["greenhouse:co:2"]
+    monkeypatch.setattr(linkcheck, "gone_now", gone_now)
+    run_once(tmp_path, monkeypatch, [job(1)])
+    assert asked == ["greenhouse:co:2"] and closed(tmp_path)["greenhouse:co:2"] == 1
+    assert "Closed (missing from the board, and its site says gone): 1" in capsys.readouterr().out

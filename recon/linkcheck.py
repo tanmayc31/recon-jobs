@@ -173,6 +173,11 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
     return None
 
 
+async def gone_now(jobs: list[dict], transport=None) -> list[str]:
+    """IDs of the jobs whose site's API says gone now (a board just stopped listing them)."""
+    return [j["job_id"] for j, ok in await api_open(jobs, transport) if ok is False]
+
+
 async def check_open(jobs: list[dict], transport=None) -> list[tuple[dict, bool | None]]:
     """is_open for many jobs: a few at a time per site. Job-list jobs on company sites (no API)
     are also opened in a browser when Playwright is installed (render_open): Microsoft's page says
@@ -216,13 +221,19 @@ async def api_open(jobs: list[dict], transport=None) -> list[tuple[dict, bool | 
         return await asyncio.gather(*(one(j) for j in jobs))
 
 
-async def recheck_open(transport=None) -> tuple[int, int]:
+# Best bets (web/lib/db.ts tabWhere "best") and New: the jobs you open first, checked every 3 hours
+BEST = ("j.decision = 'match' AND j.status IN ('new', 'backlog') AND (j.status = 'new' OR (j.level IN ('entry', 'ii')"
+        " AND COALESCE(j.min_years, j.ai_years, 0) <= 2 AND sp.filings > 0 AND j.fit_score >= 70))")
+
+
+async def recheck_open(transport=None, best: bool = False) -> tuple[int, int]:
     """Daily: every job in New, Backlog and Later through its site's API; close the gone ones.
-    Returns (checked, closed)."""
+    best: only Best bets and New (every 3 hours). Returns (checked, closed)."""
     store = Store(url=os.environ.get("DATABASE_URL"))
+    where = BEST if best else "(j.decision = 'match' AND j.status IN ('new', 'backlog')) OR j.status = 'later'"
     jobs = [dict(zip(COLS, r)) for r in store.execute(
-        f"SELECT {', '.join(COLS)} FROM jobs WHERE closed_at IS NULL"
-        " AND ((decision = 'match' AND status IN ('new', 'backlog')) OR status = 'later')").fetchall()]
+        f"SELECT {', '.join('j.' + c for c in COLS)} FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company"
+        f" WHERE j.closed_at IS NULL AND ({where})").fetchall()]
     store.close()
     gone, unknown = 0, 0
     for i in range(0, len(jobs), BATCH):   # saved batch by batch: a dropped connection loses one batch
@@ -233,7 +244,8 @@ async def recheck_open(transport=None) -> tuple[int, int]:
         store.commit()
         store.close()
         gone, unknown = gone + len(closing), unknown + sum(1 for _, ok in results if ok is None)
-    print(f"Open check: {len(jobs)} jobs in New/Backlog/Later, {gone} gone and closed, {unknown} couldn't be checked")
+    print(f"Open check: {len(jobs)} jobs in {'Best bets/New' if best else 'New/Backlog/Later'}, {gone} gone and closed,"
+          f" {unknown} couldn't be checked")
     return len(jobs), gone
 
 
@@ -316,6 +328,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--recheck-open", action="store_true",
                         help="check every job in New/Backlog/Later through its site's API, close the gone ones")
+    parser.add_argument("--best", action="store_true", help="with --recheck-open: only Best bets and New")
     args = parser.parse_args()
     load_env()
-    asyncio.run(recheck_open() if args.recheck_open else main())
+    asyncio.run(recheck_open(best=args.best) if args.recheck_open else main())

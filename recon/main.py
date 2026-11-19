@@ -182,11 +182,22 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     store.touch_many(still_listed)
     # only complete listings: a failed or cut-off fetch (company["partial"]) or an empty board
     # (more often a glitch than a hiring freeze) says nothing about which jobs closed
-    closed, reopened = store.track_listings({c["company"]: {j.job_id for j in jobs}
-                                             for c, jobs in zip(companies, results) if jobs and not c.get("partial")})
+    listed = {c["company"]: {j.job_id for j in jobs} for c, jobs in zip(companies, results) if jobs and not c.get("partial")}
+    closed, reopened = store.track_listings(listed)
+    # missed once by a complete listing: ask the site now rather than wait a run (6 h for Tier 3)
+    missing = store.just_missed(list(listed))
     store.mark_seen([c["company"] for c, jobs in zip(companies, results) if jobs is not None])
     store.commit()
     store.close()
+    gone_now = []
+    if missing:
+        from recon import linkcheck   # imports main
+        gone_now = await linkcheck.gone_now(missing)
+        if gone_now:
+            store = Store(url=os.environ.get("DATABASE_URL"))
+            store.close_jobs(gone_now)
+            store.commit()
+            store.close()
 
     total = sum(1 for _ in all_jobs)
     label = f"tiers {','.join(map(str, sorted(tiers)))}" if tiers else "all tiers"
@@ -200,6 +211,8 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
         print(f"Unverified (no description, retried next run): {unverified}")
     if closed or reopened:
         print(f"Closed (gone from the board {MISSES_TO_CLOSE} runs in a row): {closed}, reopened: {reopened}")
+    if gone_now:
+        print(f"Closed (missing from the board, and its site says gone): {len(gone_now)}")
     if backlog:
         print(f"\n📦 {backlog} backlog matches saved from first-time companies (not shown as new)")
     print(f"\n🆕 {len(new_matches)} new matches since last run\n")

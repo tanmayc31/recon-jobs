@@ -338,3 +338,23 @@ def test_with_personal_lists_off_only_the_page_load_counts(monkeypatch):
     assert asyncio.run(linkcheck.list_rows(httpx.AsyncClient(transport=httpx.MockTransport(
         lambda r: calls.append(r) or httpx.Response(500))))) is None
     assert calls == []
+
+
+def test_best_bets_open_check_reads_only_best_bets_and_new(tmp_path, monkeypatch):
+    from recon.store import Store
+    from recon.models import Job
+    s = Store(tmp_path / "t.db")
+    s.execute("INSERT INTO sponsors (company, filings, employers) VALUES ('Co', 100, 'Co Inc')")
+    for n, status, level, fit in [(1, "backlog", "entry", 80), (2, "backlog", "entry", 50), (3, "new", "unknown", None), (4, "later", "entry", 90)]:
+        s.upsert_many([(Job(f"greenhouse:co:{n}", "Co", "Software Engineer", "Austin, TX", "u", None, "greenhouse", 1, "x"), "match", None, None, status)])
+        s.execute("UPDATE jobs SET level = ?, fit_score = ?, status = ? WHERE job_id = ?", (level, fit, status, f"greenhouse:co:{n}"))
+    s.commit()
+    monkeypatch.setattr(linkcheck, "Store", lambda url=None: Store(tmp_path / "t.db"))
+    seen = []
+
+    async def check_open(jobs, transport=None):
+        seen.extend(j["job_id"] for j in jobs)
+        return [(j, True) for j in jobs]
+    monkeypatch.setattr(linkcheck, "check_open", check_open)
+    asyncio.run(linkcheck.recheck_open(best=True))
+    assert sorted(seen) == ["greenhouse:co:1", "greenhouse:co:3"]   # the Best bet and the New job

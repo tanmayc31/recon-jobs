@@ -335,6 +335,18 @@ class Store:
         self.executemany("UPDATE jobs SET missed_runs=?, closed_at=?, closed_reason=? WHERE job_id=?", updates)
         return closed, reopened
 
+    def just_missed(self, companies: list[str]) -> list[dict]:
+        """Open matches (and Later) a complete listing just missed for the first time."""
+        cols = ["job_id", "source", "url", "source_ids", "company", "title"]
+        out = []
+        for i in range(0, len(companies), 500):
+            chunk = companies[i:i + 500]
+            out += [dict(zip(cols, r)) for r in self.execute(
+                f"SELECT {', '.join(cols)} FROM jobs WHERE missed_runs = 1 AND closed_at IS NULL"
+                " AND ((decision = 'match' AND status IN ('new', 'backlog')) OR status = 'later')"
+                f" AND company IN ({','.join('?' * len(chunk))})", tuple(chunk)).fetchall()]
+        return out
+
     def close_jobs(self, job_ids: list[str]):
         """Close jobs the site's API says are gone (recon/linkcheck.py)."""
         self.executemany("UPDATE jobs SET closed_at=?, closed_reason='api' WHERE job_id=? AND closed_at IS NULL",
