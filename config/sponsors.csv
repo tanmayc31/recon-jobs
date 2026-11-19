@@ -23,7 +23,7 @@ ByteDance/TikTok,1401,bytedance,
 EY,1378,successfactors,
 Mphasis,1321,custom site,
 Oracle,1147,oracle,Oracle
-Tech Mahindra,975,smartrecruiters,
+Tech Mahindra,975,smartrecruiters,Tech Mahindra
 Qualcomm,933,eightfold,Qualcomm
 Goldman Sachs,889,oracle,Goldman Sachs
 Nvidia,880,workday,Nvidia
@@ -49,7 +49,7 @@ Uber,561,greenhouse,Uber
 SKILLTUNE TECHNOLOGIES INC,559,unknown,
 "Hexaware Technologies, Inc.",555,oracle,
 KFORCE INC.,531,unknown,
-ServiceNow,525,smartrecruiters,
+ServiceNow,525,smartrecruiters,ServiceNow
 "Comcast Cable Communications, LLC",516,workday,Comcast
 "Charles Schwab & Company, Inc.",514,icims,
 "Optum Services, Inc.",505,taleo,
@@ -151,7 +151,7 @@ Roblox Corporation,175,greenhouse,Roblox
 EFICENS SYSTEMS INC,169,unknown,
 Moody's,167,successfactors,
 Broadcom/VMware,166,workday,Broadcom
-"NAGARRO, INC",163,smartrecruiters,
+"NAGARRO, INC",163,smartrecruiters,Nagarro
 "RELX, Inc.",159,workday,RELX
 "NetApp, Inc.",157,custom site,
 "Target Enterprise, Inc.",157,workday,Target
@@ -213,7 +213,7 @@ Visionet Systems Inc,122,custom site,
 HCA Management Services LP,121,workday,HCA Healthcare
 "DENKEN SOLUTIONS, INC.",120,unknown,
 SONY INTERACTIVE ENTERTAINMENT LLC,120,greenhouse,Sony Interactive Entertainment Inc
-"ASML US, LP",119,smartrecruiters,
+"ASML US, LP",119,smartrecruiters,ASML
 "TAVANT TECHNOLOGIES, INC.",119,custom site,
 CyberSource Corporation,119,workday,Visa
 Palayekar Companies Inc,118,unknown,
@@ -403,7 +403,7 @@ The Options Clearing Corporation,63,unknown,
 Sonata Software North America Inc,63,unknown,
 IPOLARITY LLC,63,custom site,
 Gap Inc.,63,custom site,
-Mindlance Inc.,63,smartrecruiters,
+Mindlance Inc.,63,smartrecruiters,Mindlance
 Softworld Technologies LLC,63,unknown,
 SDVS Technologies LLC,62,custom site,
 "PYRAMID TECHNOLOGY SOLUTIONS, INC",62,custom site,
@@ -494,7 +494,7 @@ Headstrong Services LLC,52,unknown,
 Tekaccel Inc,52,unknown,
 RYZLINK CORP,52,unknown,
 Dataflake LLC,52,custom site,
-AbbVie Inc.,51,smartrecruiters,
+AbbVie Inc.,51,smartrecruiters,AbbVie
 Raas Infotek LLC,51,unknown,
 City National Bank,51,unknown,
 "Saama Technologies, LLC",51,jobvite,
@@ -11091,7 +11091,7 @@ FAIRFAX DATA SYSTEMS INC.,2,,
 Archimedis Digital LLC,2,,
 "Thrivesol, Inc.",2,,
 University Corporation for Atmospheric Research,2,,
-ABBVIE ENDOCRINOLOGY INC.,2,,
+ABBVIE ENDOCRINOLOGY INC.,2,,AbbVie
 "NISSI SOFTWARE SOLUTIONS, INC.",2,,
 AM/NS Calvert LLC,2,,
 "QIAGEN Redwood City, Inc.",2,,

@@ -224,3 +224,21 @@ def test_google_open_gone_and_blocked(monkeypatch):
     ], httpx.MockTransport(h)))}
     assert got == {"google:google:100000000000000001": False, "google:google:137359440260014790": True,
                    "google:google:222": None}
+
+
+def test_smartrecruiters_open_and_closed(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a gone posting answers 404 RESOURCE_NOT_FOUND
+        pid = req.url.path.rsplit("/", 1)[-1]
+        assert req.url.path.startswith("/v1/companies/ServiceNow/postings/")
+        if pid == "1":
+            return httpx.Response(404, json={"httpCode": 404, "code": "RESOURCE_NOT_FOUND"})
+        return httpx.Response(200, json={"id": pid, "active": pid != "2"})
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("smartrecruiters:ServiceNow:1", "smartrecruiters", "https://jobs.smartrecruiters.com/ServiceNow/1"),
+        job("smartrecruiters:ServiceNow:2", "smartrecruiters", "https://jobs.smartrecruiters.com/ServiceNow/2"),
+        job("smartrecruiters:ServiceNow:744000162409639", "smartrecruiters", "https://jobs.smartrecruiters.com/ServiceNow/744000162409639"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"smartrecruiters:ServiceNow:1": False, "smartrecruiters:ServiceNow:2": False,
+                   "smartrecruiters:ServiceNow:744000162409639": True}

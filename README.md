@@ -111,6 +111,12 @@ responsibilities and qualifications, so no per-job requests. The open check read
 Google answers with a block or its "unusual traffic" page, the run fails with Blocked and Recon
 doesn't work around it.
 
+## SmartRecruiters
+recon/sources/smartrecruiters.py reads SmartRecruiters companies (ServiceNow, AbbVie, Nagarro, ASML,
+Tech Mahindra, Mindlance) through the public Posting API: every US posting, then descriptions for
+new matches; companies.csv slug is the identifier in careers.smartrecruiters.com/<slug>. A gone
+posting answers 404 (or active: false).
+
 ## Jobright alert emails (off)
 Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
 reads, so the emails add nothing. Without the settings below the source does nothing.

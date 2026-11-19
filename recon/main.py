@@ -12,11 +12,13 @@ import httpx
 from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
-from recon.sources import amazon, ashby, eightfold, gmail, google, greenhouse, lever, listings, meta, oracle, workday
+from recon.sources import (amazon, ashby, eightfold, gmail, google, greenhouse, lever, listings, meta, oracle,
+                           smartrecruiters, workday)
 from recon.store import MISSES_TO_CLOSE, Store, fresh, now
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon,
-           "listings": listings, "gmail": gmail, "eightfold": eightfold, "oracle": oracle, "meta": meta, "google": google}
+           "listings": listings, "gmail": gmail, "eightfold": eightfold, "oracle": oracle, "meta": meta, "google": google,
+           "smartrecruiters": smartrecruiters}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}

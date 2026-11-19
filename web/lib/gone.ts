@@ -89,6 +89,13 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       if (r.status === 404 || new URL(r.url).pathname.startsWith("/jobs/position-not-available")) return "gone";
       return r.status === 200 && new URL(r.url).pathname.includes(id) ? "open" : "unknown";
     }
+    if (source === "smartrecruiters") {
+      // the posting's endpoint: 404, or active: false, when it's gone (recon/sources/smartrecruiters.py)
+      const r = await get(`https://api.smartrecruiters.com/v1/companies/${slug}/postings/${id}`);
+      if (r.status === 404) return "gone";
+      if (r.status !== 200) return "unknown";
+      return (await r.json()).active === false ? "gone" : "open";
+    }
     if (source === "google") {
       // a taken-down job's page shows the search instead: its embedded job data (ds:0) is empty
       const r = await get(`https://www.google.com/about/careers/applications/jobs/results/${id}`);
