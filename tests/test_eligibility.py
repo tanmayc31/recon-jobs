@@ -302,3 +302,38 @@ def test_sections_ignore_headings_inside_sentences():
                  "Preferred qualifications: Kafka. Equal Opportunity Employer: we welcome everyone.")
     assert s["minimum"] == "2+ years of Java." and s["preferred"] == "Kafka."
     assert s["other"].startswith("We translate defined requirements") and "welcome" in s["boilerplate"]
+
+
+def test_degree_ladders_use_your_degree_line():
+    # real Microsoft "Software Engineer II": the Master's line applies (YOUR_DEGREE master)
+    ms = ("Master's Degree in Computer Science or related technical field AND 3+ years technical engineering experience "
+          "with coding in languages including, but not limited to, C, C++, C#, Java, JavaScript, or Python OR Bachelor's "
+          "Degree in Computer Science or related technical field AND 5+ years technical engineering experience with coding "
+          "in languages including, but not limited to, C, C++, C#, Java, JavaScript, or Python OR equivalent experience.")
+    assert min_years(ms) == 3
+    # real Cisco: one sentence
+    assert min_years("Bachelors + 5 years of related experience OR Masters + 3 years of related experience OR PhD + 0 "
+                     "years of designing, developing, and deploying enterprise software in production") == 3
+    # real KLA: the ladder across sentences ("one of the following")
+    assert min_years("Minimum Qualifications Education and experience (one of the following): Bachelor’s degree in "
+                     "computer science, with 5+ years of relevant experience. Master's degree in a related field with 3+ "
+                     "years of relevant experience. Doctorate in a related field with 1+ year of relevant experience.") == 3
+    # real Intel: a separate requirement after the ladder still counts
+    assert min_years("Minimum Qualifications: Bachelor's degree in a relevant field with 6+ years of hands-on experience "
+                     "in software integration; OR Master's degree with 4+ years of relevant experience; -OR- PhD with 2+ "
+                     "years of relevant experience. 2+ years of experience in software build systems.") == 4
+
+
+def test_degree_substitutes_and_ranges():
+    # real M&T Bank: "in lieu of a degree" is for people without one
+    assert min_years("Bachelor's degree and a minimum of 2 years' systems analysis experience. In lieu of a degree, a "
+                     "combined minimum of 5 years' education and/or relevant work experience, including a minimum of 1 "
+                     "year of systems analysis and/or application development work experience") == 2
+    # real Paypay: "or 5+ years equivalent experience" replaces the degree
+    assert min_years("Bachelor's Degree in Computer Engineering or Computer Science or 5+ years equivalent experience "
+                     "in SaaS platform development") is None
+    # real U.S. Bank: a range in words is its low end
+    assert min_years("Bachelor's degree, or equivalent work experience - Three to five years of relevant experience") == 3
+    assert min_years("Bachelor’s Degree and four to six years of experience or equivalent education") == 4
+    # real stacked minimums still take the largest (OpenAI)
+    assert min_years("- 7+ years of experience as a software engineer") == 7

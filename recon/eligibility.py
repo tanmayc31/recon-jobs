@@ -12,7 +12,7 @@ NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
              "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 YEARS = re.compile(
     r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s*\(\d{1,2}\+?\))?\s*\+?\s*"   # "two (2) years"
-    r"(?:(?:-|–|to)\s*\d{1,2}\s*\+?\s*)?(?:years?|yrs?)\b"
+    r"(?:(?:-|–|to)\s*(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*)?(?:years?|yrs?)\b"   # "three to five years": 3
     r"(?=[^.]{0,80}\b(experience|industry|professional|engineering|software|building|developing|working)"
     r"|\s+in\s+an?\s+[^.]{0,40}?\b(role|position)\b)",   # F5: "8+ years in a Post-Sales technical role"
     re.I,
@@ -236,29 +236,58 @@ def sections(text: str) -> dict[str, str]:
     return {k: " ".join(v).strip() for k, v in out.items()}
 
 
+# Degree ladders ("Bachelor's + 5 years OR Master's + 3 years OR PhD + 0"): the line for your
+# degree is your requirement. A years mention belongs to the nearest degree before it in the same
+# clause (no other years mention in between); one with no degree is a requirement of its own.
+YOUR_DEGREE = "master"   # bachelor / master / phd: the ladder line that applies to you
+DEGREE = re.compile(r"\b(?:(?P<bachelor>bachelor|b\.?\s?s\.?\b|b\.?\s?a\.?\b|undergraduate)|"
+                    r"(?P<master>master|m\.?\s?s\.?\b)|(?P<phd>ph\.?\s?d|doctora))", re.I)
+LADDER_BACK = 200
+# a degree substitute isn't an ask for someone with the degree: "In lieu of a degree, a combined
+# minimum of 5 years' education and/or experience"; "Bachelor's degree ... or 5+ years equivalent experience"
+IN_LIEU = re.compile(r"lieu\s+of\s+(a\s+)?(bachelor'?s?\s+)?degree[^.]{0,120}$", re.I)   # same clause, before it
+EQUIVALENT = re.compile(r"\s*(of\s+)?equivalent\b", re.I)   # "5+ years equivalent", not "years of experience or equivalent"
+
+
+def ladder_degree(text: str, m: re.Match, years: list[re.Match]) -> str | None:
+    """The degree a years mention is tied to, or None (a requirement on its own)."""
+    lo = max(m.start() - LADDER_BACK, 0)
+    degrees = list(DEGREE.finditer(text, lo, m.start()))
+    if not degrees:
+        return None
+    d = degrees[-1]
+    if any(d.end() <= y.start() < m.start() for y in years):
+        return None   # another years mention sits in between: its own requirement
+    return d.lastgroup
+
+
 def min_years(text: str) -> int | None:
-    """Headline years ask: the largest required number. Minimum-qualification lines decide when the
-    posting has them; preferred lines and company boilerplate never count.
+    """Headline years ask: the largest real requirement. Minimum-qualification lines decide when the
+    posting has them; preferred lines, company boilerplate and degree substitutes never count, and in
+    a degree ladder only your degree's line does.
 
     "2 years of software development. 1 year with recommendation systems" -> 2 (both are minimums).
+    "Bachelor's + 5 years OR Master's + 3 years" -> 3 (YOUR_DEGREE master).
     """
     text = text or ""
     parts = sections(text)
     text = parts["minimum"] or f"{parts['other']} {parts['minimum']}"
-    groups, prev_end = [], None
-    for m in YEARS.finditer(text):
-        if SOFT_YEARS.search(sentence(text, m)):
+    found = list(YEARS.finditer(text))
+    asks = []   # (years, degree or None)
+    for m in found:
+        s = sentence(text, m)
+        if SOFT_YEARS.search(s) or IN_LIEU.search(text, max(m.start() - 150, 0), m.start()) or EQUIVALENT.match(text, m.end()):
             continue
         raw = m.group(1).lower()
         n = NUM_WORDS.get(raw) or int(raw)
-        if not 0 < n <= 20:
-            continue
-        # new sentence if punctuation sits between this match and the last one
-        if prev_end is None or END.search(text, prev_end, m.start()) or m.start() - prev_end > AHEAD:
-            groups.append([])
-        groups[-1].append(n)
-        prev_end = m.end()
-    return max(max(g) for g in groups) if groups else None
+        if 0 < n <= 20:
+            asks.append((n, ladder_degree(text, m, found)))
+    if not asks:
+        return None
+    ladder = {d for _, d in asks if d}
+    # your line if the posting has one; else the lowest degree line it gives (a bachelor's ask still applies)
+    mine = YOUR_DEGREE if YOUR_DEGREE in ladder else next((d for d in ("bachelor", "master", "phd") if d in ladder), None)
+    return max(n for n, d in asks if d is None or d == mine)
 
 
 # --- Is it actually a software job? ---
