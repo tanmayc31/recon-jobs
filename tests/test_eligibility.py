@@ -1,4 +1,4 @@
-from recon.eligibility import check, early_start, experience_cap, grad_outside, min_years
+from recon.eligibility import sections, check, early_start, experience_cap, grad_outside, min_years
 
 
 def test_years():
@@ -90,9 +90,9 @@ def test_years_headline_number():
                 "infrastructure building tooling for developers.")
     assert min_years(dev_prod) == 5
     assert check(dev_prod)[1] == "5+ years"
-    # Separate sentences: smallest wins (lenient)
+    # Separate requirement sentences stack: the largest wins (a 6-year minimum is a 6-year job)
     assert min_years("2+ years of software engineering experience. 6+ years of professional experience "
-                     "leading teams.") == 2
+                     "leading teams.") == 6
 
 
 def test_soft_years():
@@ -267,3 +267,38 @@ def test_active_government_top_secret_clearance():
     text = ("Security screenings: The successful candidate must have an active U.S. Government Top Secret "
             "Security Clearance. Failure to maintain or obtain the appropriate clearance")
     assert check(text, "Software Engineer")[1] == "citizenship/clearance"
+
+
+def test_any_required_clearance_blocks():
+    # real EY "Government and Infrastructure - Service Delivery Center - AI Solution Developer"
+    ey = ("Must be able to obtain and maintain a secret clearance or higher Must have a bachelor’s degree and a "
+          "minimum of two years of related professional experience Must be comfortable working in-person as needed")
+    assert check(ey, "Government and Infrastructure - Service Delivery Center - AI Solution Developer")[:3] == (
+        False, "citizenship/clearance", 2)
+    for text in ["Secret clearance or higher.", "Candidates must hold a Public Trust clearance.",
+                 "Ability to obtain a Public Trust.", "Active Secret clearance required.",
+                 "Must possess a DoD clearance."]:
+        assert check(text)[1] == "citizenship/clearance", text
+    for text in ["An active Secret clearance is a plus.", "Security clearance preferred."]:   # wishes stay flags
+        assert check(text)[0] and "clearance preferred" in check(text)[3], text
+
+
+def test_years_in_words_and_minimums_decide():
+    assert min_years("A minimum of two (2) years of professional software experience.") == 2
+    assert min_years("Minimum of three years of experience building web applications.") == 3
+    # real Google "Software Engineer, Automatic Prompt Optimization": minimums stack, preferred never counts
+    google = ("Minimum qualifications: Bachelor’s degree or equivalent practical experience. 2 years of experience "
+              "with software development in one or more programming languages. 1 year of experience building "
+              "recommendation or ranking models in production. Preferred qualifications: 5 years of experience with "
+              "data structures and algorithms.")
+    assert min_years(google) == 2
+    # company boilerplate isn't an ask
+    assert min_years("Requirements: 1+ years of experience with Python. Benefits: for over 12 years we have been "
+                     "building great software.") == 1
+
+
+def test_sections_ignore_headings_inside_sentences():
+    s = sections("We translate defined requirements into working technology. Requirements: 2+ years of Java. "
+                 "Preferred qualifications: Kafka. Equal Opportunity Employer: we welcome everyone.")
+    assert s["minimum"] == "2+ years of Java." and s["preferred"] == "Kafka."
+    assert s["other"].startswith("We translate defined requirements") and "welcome" in s["boilerplate"]

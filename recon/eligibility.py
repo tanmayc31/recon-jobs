@@ -11,7 +11,7 @@ MAX_YEARS = 4  # drop jobs whose minimum ask is above this
 NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
              "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 YEARS = re.compile(
-    r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*\+?\s*"
+    r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s*\(\d{1,2}\+?\))?\s*\+?\s*"   # "two (2) years"
     r"(?:(?:-|–|to)\s*\d{1,2}\s*\+?\s*)?(?:years?|yrs?)\b"
     r"(?=[^.]{0,80}\b(experience|industry|professional|engineering|software|building|developing|working)"
     r"|\s+in\s+an?\s+[^.]{0,40}?\b(role|position)\b)",   # F5: "8+ years in a Post-Sales technical role"
@@ -31,8 +31,11 @@ BLOCKERS = {
         # Microsoft: "must have an active U.S. Government Top Secret Security Clearance"
         r"active\s+(u\.?s\.?\s+)?(government\s+)?(secret|top\s+secret)\s+(security\s+)?clearance|"
         r"top\s+secret\s+(security\s+)?(clearance\s+)?(is\s+)?required|"
-        # a few words allowed: "obtain and maintain a U.S. government issued security clearance"
-        r"(obtain|maintain|eligible\s+for)(\s+[\w./-]+){0,6}?\s+security\s+clearance|"
+        # a few words allowed: "obtain and maintain a U.S. government issued security clearance";
+        # with or without "security": EY's "Must be able to obtain and maintain a secret clearance or higher"
+        r"(obtain|maintain|hold|possess|eligib\w*\s+(for|to\s+obtain))\b(?:[^.]|\.(?=\S)|(?<=[A-Z])\.){0,60}?\bclearance|"   # "U.S." isn't a sentence end
+        r"\b(secret|top\s+secret|public\s+trust|dod|government|federal)\s+(security\s+)?clearance|"
+        r"\bpublic\s+trust\b|"
         r"\bitar\b|export\s+control(led)?\s+.{0,40}u\.?s\.?\s+person|"
         r"\bu\.?s\.?\s+person\s+(status\s+)?required|requires\s+\bu\.?s\.?\s+person|"
         r"must\s+be\s+(a\s+)?\bu\.?s\.?\s+person",
@@ -201,12 +204,47 @@ SENIOR_ROLE = re.compile(
 )
 
 
-def min_years(text: str) -> int | None:
-    """Headline years ask: largest number in each sentence, then smallest across sentences.
+# Section headings inside a flat description ("... code. Minimum qualifications: Bachelor's ...").
+# A heading counts only when capitalized or followed by a colon, so "translate defined requirements
+# into" in a sentence isn't one.
+HEADINGS = {
+    "minimum": r"minimum qualifications|basic qualifications|required qualifications|minimum requirements|"
+               r"requirements|qualifications|key qualifications|what you(?:'|’)ll need|what we(?:'|’)re looking for|"
+               r"what you bring|you (?:will )?(?:have|bring)|who you are|required",
+    "preferred": r"preferred qualifications|preferred skills|preferred experience|nice[- ]to[- ]haves?|bonus points?|"
+                 r"additional qualifications|it(?:'|’)s a plus|preferred",
+    "boilerplate": r"equal (?:employment )?opportunity|benefits|compensation|pay (?:range|transparency)|salary range|"
+                   r"(?:the )?base pay range|about (?:us|the company)|accommodations?|e-verify|privacy notice|"
+                   r"what we offer|perks",
+}
+HEADING = re.compile("|".join(f"(?P<{k}>(?:{v}))(?P<{k}_colon>\\s*:)?" for k, v in HEADINGS.items()), re.I)
 
-    "5+ years, including 3+ years in infra" -> 5. Separate sentences stay lenient.
+
+def sections(text: str) -> dict[str, str]:
+    """The description split by its headings: minimum, preferred, boilerplate and other text."""
+    text = text or ""
+    out = {"minimum": [], "preferred": [], "boilerplate": [], "other": []}
+    kind, start = "other", 0
+    for m in HEADING.finditer(text):
+        k = m.lastgroup.removesuffix("_colon")
+        word = m.group(k)
+        if not (m.group(f"{k}_colon") or word[0].isupper()):
+            continue   # a word in a sentence, not a heading
+        out[kind].append(text[start:m.start()])
+        kind, start = k, m.end()
+    out[kind].append(text[start:])
+    return {k: " ".join(v).strip() for k, v in out.items()}
+
+
+def min_years(text: str) -> int | None:
+    """Headline years ask: the largest required number. Minimum-qualification lines decide when the
+    posting has them; preferred lines and company boilerplate never count.
+
+    "2 years of software development. 1 year with recommendation systems" -> 2 (both are minimums).
     """
     text = text or ""
+    parts = sections(text)
+    text = parts["minimum"] or f"{parts['other']} {parts['minimum']}"
     groups, prev_end = [], None
     for m in YEARS.finditer(text):
         if SOFT_YEARS.search(sentence(text, m)):
@@ -220,7 +258,7 @@ def min_years(text: str) -> int | None:
             groups.append([])
         groups[-1].append(n)
         prev_end = m.end()
-    return min(max(g) for g in groups) if groups else None
+    return max(max(g) for g in groups) if groups else None
 
 
 # --- Is it actually a software job? ---

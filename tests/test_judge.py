@@ -16,7 +16,7 @@ MS CS, Northeastern (2024 - 2026). Python, TypeScript, AWS, Postgres. Built a RA
 GOOD = {"sponsorship": "unclear", "citizenship_or_clearance": False, "required_years": 2, "max_years_allowed": None,
         "is_software": True, "seniority": "junior", "skills_match": 80, "level_fit": 90, "domain_fit": 75,
         "why": "Strong Python and AWS overlap. RAG project matches.", "missing_skills": ["Go"],
-        "resume": "ai"}
+        "unmet_minimums": [], "resume": "ai"}
 
 
 def job(n, description="Build APIs in Python on AWS."):
@@ -244,3 +244,48 @@ def test_citizenship_must_be_stated_not_inferred():
     rule = " ".join(judge.INSTRUCTIONS.split())
     assert "true only if the posting EXPLICITLY states" in rule
     assert "Never infer it: a government contractor, federal clients" in rule and "federal holidays" in rule
+
+
+def test_an_unmet_minimum_caps_the_fit_and_leads_missing():
+    # real Apple "Software Engineer, ETS (IdMS)": minimum 2+ years of Core Java/JEE; Gemini said skills 80
+    from recon.judge import clean
+    a = clean(dict(GOOD, job_id="apple:1", skills_match=80, level_fit=80, domain_fit=80, missing_skills=["Spring"],
+                   unmet_minimums=[{"requirement": "2+ years of Core Java, JEE and multithreading", "kind": "language_or_framework"}]))
+    assert a["skills_match"] == 60                       # a required language missing: skills can't be high
+    assert a["fit_score"] == 60                           # any unmet minimum: capped at 60
+    assert a["missing_skills"][0] == "2+ years of Core Java, JEE and multithreading"
+    # real Google "Automatic Prompt Optimization": 1 year of recommendation/ranking models in production
+    g = clean(dict(GOOD, job_id="google:1", skills_match=85, level_fit=75, domain_fit=95,
+                   unmet_minimums=[{"requirement": "1 year building recommendation/ranking models in production", "kind": "domain"}]))
+    assert g["skills_match"] == 85 and g["fit_score"] == 60   # a domain gap caps the fit, not the skills part
+
+
+def test_all_minimums_met_keeps_a_good_match_good():
+    # real Microsoft "Software Engineer II" (Azure Monitor): a correct high score stays high
+    from recon.judge import clean
+    a = clean(dict(GOOD, job_id="ms:1", skills_match=85, level_fit=75, domain_fit=85, unmet_minimums=[]))
+    assert a["fit_score"] == 82
+
+
+def test_bad_unmet_minimums_are_malformed():
+    from recon.judge import clean
+    assert clean(dict(GOOD, job_id="x", unmet_minimums=[{"requirement": "Java", "kind": "vibes"}])) is None
+    assert clean(dict(GOOD, job_id="x", unmet_minimums=[{"requirement": "", "kind": "years"}])) is None
+
+
+def test_the_judge_reads_minimums_first_without_boilerplate():
+    from recon.judge import focus
+    posting = ("About us: we are great. " * 300 + "Benefits: free lunch. Minimum qualifications: 2 years of Java. "
+               "Preferred qualifications: Kafka.")
+    text = focus(posting)
+    assert text.startswith("MINIMUM QUALIFICATIONS: 2 years of Java.")   # not cut off behind the company pitch
+    assert "PREFERRED QUALIFICATIONS: Kafka." in text and "free lunch" not in text
+
+
+def test_a_rejudge_takes_former_best_bets_first(tmp_path):
+    s = Store(tmp_path / "t.db")
+    for n, status, fit, level in [(1, "new", None, "unknown"), (2, "backlog", 84, "ii"), (3, "backlog", 50, "entry")]:
+        s.upsert_many([(job(n), "match", None, None, status)])
+        s.execute("UPDATE jobs SET fit_score = ?, level = ?, status = ? WHERE job_id = ?", (fit, level, status, f"greenhouse:co:{n}"))
+    s.commit()
+    assert [j["job_id"] for j in s.unscored(3)] == ["greenhouse:co:2", "greenhouse:co:1", "greenhouse:co:3"]

@@ -60,7 +60,8 @@ def test_reads_every_page_merges_cities_and_describes_new_matches(monkeypatch):
     assert j.job_id == "apple:apple:200695375" and j.posted_at == "2026-11-17"
     assert j.location == "Cupertino, United States of America; Austin, United States of America"
     assert j.url == "https://jobs.apple.com/en-us/details/200695375/software-engineer,-ios"
-    assert "Build iOS frameworks." in j.description and "Ship Swift code." in j.description
+    assert "Build iOS frameworks." in j.description and "Description: Ship Swift code." in j.description
+    assert "Minimum qualifications: BS in CS" in j.description   # labeled: minimums are gates
     details = [r.url.path for r in asked if r.url.path.startswith("/api/v1/jobDetails/")]
     assert details == ["/api/v1/jobDetails/200695375"]   # not the manager or the senior role
 

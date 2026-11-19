@@ -12,7 +12,7 @@ from recon.models import Job
 from recon.roles import level, role_type
 
 DB = Path(__file__).parent.parent / "data" / "recon.db"
-DESC_CHARS = 8000   # stored description length (matches only)
+DESC_CHARS = 12000  # stored description length (matches only); EY's postings ran past 8,000
 FRESH_DAYS = 3      # a first-run job posted this recently is news, not backlog
 MISSES_TO_CLOSE = 2  # complete fetches in a row without the job before it counts as closed
 AI_COLUMNS = [("description", "TEXT"), ("fit_score", "INTEGER"), ("ai_why", "TEXT"),
@@ -391,13 +391,15 @@ class Store:
         return ids
 
     def unscored(self, limit: int) -> list[dict]:
-        """Rule-filter matches with a description and no AI verdict yet: New first, then
-        Backlog by tier (Tier 1 first), then anything else; newest first within each."""
+        """Rule-filter matches with a description and no AI verdict yet: Best bets from their last
+        verdict first (a re-judge reaches what you open first), then New, then Backlog by tier
+        (Tier 1 first), then anything else; newest first within each."""
         cols = ["job_id", "company", "title", "location", "description"]
         return [dict(zip(cols, r)) for r in self.execute(
             f"SELECT {', '.join(cols)} FROM jobs WHERE decision = 'match' AND ai_scored_at IS NULL AND closed_at IS NULL"
             " AND description IS NOT NULL AND description <> ''"
-            " ORDER BY CASE status WHEN 'new' THEN 0 WHEN 'backlog' THEN 1 ELSE 2 END,"
+            " ORDER BY CASE WHEN status IN ('new', 'backlog') AND fit_score >= 70 AND level IN ('entry', 'ii')"
+            " THEN 0 ELSE 1 END, CASE status WHEN 'new' THEN 0 WHEN 'backlog' THEN 1 ELSE 2 END,"
             " CASE WHEN status = 'backlog' THEN tier ELSE 0 END, first_seen_at DESC, job_id"
             " LIMIT ?", (limit,)).fetchall()]
 

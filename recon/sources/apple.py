@@ -35,7 +35,9 @@ RETRIES = 3         # Apple's API sometimes stalls past the 30 s timeout: wait 2
 DETAIL_BUDGET = 240  # seconds of detail requests per run (the company's limit is 6 minutes)
 DETAIL_PARALLEL = 3
 DETAIL_TIMEOUT = 30  # one try each during a scan: a stalled one waits for the next run
-SECTIONS = ["jobSummary", "description", "responsibilities", "minimumQualifications", "preferredQualifications"]
+# labeled like the site shows them, so the years rule and the judge know minimums from preferred
+SECTIONS = {"jobSummary": "", "description": "Description:", "responsibilities": "Responsibilities:",
+            "minimumQualifications": "Minimum qualifications:", "preferredQualifications": "Preferred qualifications:"}
 
 
 class Blocked(Exception):
@@ -154,5 +156,6 @@ async def describe(client: httpx.AsyncClient, wanted: list[tuple[str, Job]]):
                 return   # stalled or failed: the next run asks again
             await asyncio.sleep(DELAY)
             if info:
-                job.description = strip_html(" ".join(str(info.get(k) or "") for k in SECTIONS))
+                job.description = " ".join(f"{label} {strip_html(str(info[k]))}".strip()
+                                           for k, label in SECTIONS.items() if info.get(k))
     await asyncio.gather(*(one(pid, job) for pid, job in wanted))

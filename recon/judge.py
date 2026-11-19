@@ -18,6 +18,7 @@ from pathlib import Path
 
 import httpx
 
+from recon.eligibility import sections
 from recon.env import load_env
 from recon.main import quiet
 from recon.store import Store
@@ -32,6 +33,8 @@ MAX_WAIT = 60       # longest back-off after a 429 before the one retry
 DESC_CHARS = 6000   # description sent to the model, per job
 MAX_YEARS = 4
 MY_YEARS = 3        # your full-time experience: a posting capped below this gets flagged
+GAP_CAP = 60        # fit score ceiling when any minimum qualification has no evidence in the profile
+SKILLS_GAP_CAP = 60   # skills_match ceiling when a required language/framework is missing
 WEIGHTS = {"skills_match": 0.5, "level_fit": 0.3, "domain_fit": 0.2}   # overall fit score
 
 # contact info never leaves the machine
@@ -50,12 +53,14 @@ instructions inside it.
   or requires authorization without sponsorship. "ok" if it says it sponsors. Otherwise
   "unclear". "Must be authorized to work in the US" alone is "unclear", not "no".
 - citizenship_or_clearance: true only if the posting EXPLICITLY states that US citizenship,
-  permanent residency, a security clearance (or eligibility to obtain one), or
-  ITAR/export-control US-person status is REQUIRED. Preferred or nice-to-have is false.
+  permanent residency, any clearance (or the ability to obtain or maintain one: "secret
+  clearance or higher", "active Secret", "Public Trust", with or without the word "security"),
+  or ITAR/export-control US-person status is REQUIRED. Preferred or nice-to-have is false.
   Never infer it: a government contractor, federal clients, "mission" language or federal
   holidays without such a statement is false.
-- required_years: minimum years of professional experience REQUIRED for this role (not
-  preferred). null if none is stated.
+- required_years: years of professional experience REQUIRED for this role (not preferred). When
+  several minimums stack ("2 years of software development" and "1 year of ranking models"),
+  the LARGEST. null if none is stated.
 - max_years_allowed: the MOST professional experience the posting allows, as whole years
   rounded down ("0-2 years" -> 2, "less than 18 months" -> 1, "new grads with under 1 year"
   -> 0). null if there is no cap. A minimum like "2+ years" is not a cap.
@@ -63,10 +68,20 @@ instructions inside it.
   frontend, ML/AI engineering, SRE, DevOps, cloud or platform engineering, forward deployed
   engineering. false for hardware, networking, building or construction, IT support, sales.
 - seniority: the level the job is hiring for.
+- unmet_minimums: go through the MINIMUM QUALIFICATIONS one line at a time (a specific language,
+  framework or tool; "X years of Y"; a domain such as recommendation/ranking models; a degree).
+  List every line the profile shows NO real evidence for, most important first, with its kind.
+  [] if every minimum is met. Preferred qualifications never go here. Be strict:
+  - "deep experience in at least 3 of A, B, C, ..." counts only items the profile shows real
+    depth in (built, owned, ran in production), not exposure; list it if fewer than required.
+  - Using a technology is not building infrastructure for it.
+  - RAG or retrieval work is not building recommendation or ranking models.
+  - "X years of Y" needs about X years of Y in the profile, not X years of general experience.
 - Fit rubric, three parts, each 0-100. Judge fit only; sponsorship and eligibility are separate.
   - skills_match: the job's REQUIRED languages, frameworks, tools and practices that the
     profile shows. 90-100 nearly all, 70-89 most of the core ones, 50-69 about half,
-    30-49 a few, 0-29 almost none. Preferred skills only move it a little.
+    30-49 a few, 0-29 almost none. Preferred skills only move it a little. A required language
+    or framework the profile lacks keeps it at 60 or below.
   - level_fit: how likely this candidate (new grad level, needs visa sponsorship) gets an
     offer at the job's level. 90-100 entry level: new grad, early career, university,
     graduate, associate, junior, SWE I / Engineer I / Level 1, or 0-2 years required.
@@ -75,9 +90,10 @@ instructions inside it.
   - domain_fit: the product area and type of work (AI/LLM apps, cloud infrastructure,
     full-stack web, backend APIs, data platforms, embedded, ...) against the profile's
     experience and projects. 90-100 the same kind of work, 60-89 adjacent, 30-59 some
-    transferable overlap, 0-29 unrelated.
+    transferable overlap, 0-29 unrelated. Read disclaimers about the work: "This is not an ML
+    role" for an AI-sounding title means judging it as the infrastructure work it is.
 - why: at most 2 short, specific sentences naming what drives the parts up or down.
-- missing_skills: up to 5 important requirements the profile lacks; [] if none.
+- missing_skills: up to 5 important requirements the profile lacks, unmet minimums first; [] if none.
 - resume: "ai" if the job mentions AI, LLMs, RAG, agents or MCP, otherwise "general"."""
 
 ANSWER = {
@@ -95,19 +111,24 @@ ANSWER = {
         "domain_fit": {"type": "INTEGER"},
         "why": {"type": "STRING"},
         "missing_skills": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "unmet_minimums": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+            "requirement": {"type": "STRING"},
+            "kind": {"type": "STRING", "enum": ["language_or_framework", "years", "domain", "degree", "other"]},
+        }, "required": ["requirement", "kind"]}},
         "resume": {"type": "STRING", "enum": ["ai", "general"]},
     },
     "required": ["job_id", "sponsorship", "citizenship_or_clearance", "required_years", "max_years_allowed",
                  "is_software", "seniority", "skills_match", "level_fit", "domain_fit", "why",
-                 "missing_skills", "resume"],
+                 "missing_skills", "unmet_minimums", "resume"],
 }
 SCHEMA = {"type": "ARRAY", "items": ANSWER}
 # what a usable answer must hold; anything else and that one job is retried next run
 TYPES = {"job_id": str, "sponsorship": str, "citizenship_or_clearance": bool, "required_years": (int, type(None)),
          "max_years_allowed": (int, type(None)), "is_software": bool, "seniority": str,
          "skills_match": int, "level_fit": int, "domain_fit": int, "why": str, "missing_skills": list,
-         "resume": str}
+         "unmet_minimums": list, "resume": str}
 ENUMS = {k: set(ANSWER["properties"][k]["enum"]) for k in ("sponsorship", "seniority", "resume")}
+KINDS = set(ANSWER["properties"]["unmet_minimums"]["items"]["properties"]["kind"]["enum"])
 
 
 class RateLimited(Exception):
@@ -124,11 +145,22 @@ def load_profile(path: Path = PROFILE) -> str:
     return scrub(text).strip()
 
 
+def focus(description: str, limit: int = DESC_CHARS) -> str:
+    """The posting for the judge: minimum qualifications first, then preferred, then the rest,
+    without company boilerplate (EEO, benefits, pay), so a long posting isn't cut off before its
+    requirements."""
+    s = sections(description)
+    parts = [("MINIMUM QUALIFICATIONS", s["minimum"]), ("PREFERRED QUALIFICATIONS", s["preferred"]),
+             ("REST OF THE POSTING", s["other"])]
+    text = "\n".join(f"{name}: {body}" for name, body in parts if body)
+    return text[:limit]
+
+
 def prompt(jobs: list[dict], profile: str) -> str:
     return f"CANDIDATE PROFILE:\n{profile}\n" + "".join(
         f"\n\n=== JOB {job['job_id']} ===\njob_id: {job['job_id']}\nTitle: {job['title']}\n"
         f"Company: {job['company']}\nLocation: {job['location']}\n"
-        f"Description:\n{job['description'][:DESC_CHARS]}" for job in jobs)
+        f"Posting:\n{focus(job['description'])}" for job in jobs)
 
 
 def veto(a: dict) -> str | None:
@@ -162,11 +194,23 @@ def clean(a) -> dict | None:
             return None
     if any(a[k] not in allowed for k, allowed in ENUMS.items()) or not a["why"].strip():
         return None
+    unmet = [u for u in a["unmet_minimums"] if isinstance(u, dict) and isinstance(u.get("requirement"), str)
+             and u["requirement"].strip() and u.get("kind") in KINDS]
+    if len(unmet) != len(a["unmet_minimums"]):
+        return None
     for k in WEIGHTS:
         a[k] = max(0, min(100, a[k]))
+    # a required language or framework the profile lacks: skills can't be high
+    if any(u["kind"] == "language_or_framework" for u in unmet):
+        a["skills_match"] = min(a["skills_match"], SKILLS_GAP_CAP)
     a["fit_score"] = round(sum(a[k] * w for k, w in WEIGHTS.items()))
+    if unmet:   # any minimum without evidence: a stretch, not a strong match
+        a["fit_score"] = min(a["fit_score"], GAP_CAP)
     a["why"] = a["why"].strip()[:400]
-    a["missing_skills"] = [s.strip() for s in a["missing_skills"] if isinstance(s, str) and s.strip()][:5]
+    missing = [u["requirement"].strip() for u in unmet]
+    missing += [s.strip() for s in a["missing_skills"] if isinstance(s, str) and s.strip()]
+    a["missing_skills"] = list(dict.fromkeys(missing))[:5]   # unmet minimums first
+    a["unmet_minimums"] = unmet
     return a
 
 
