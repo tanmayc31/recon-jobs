@@ -60,6 +60,7 @@ export type Filters = {
   hideClearance: boolean; // jobs flagged "clearance preferred"
   resume: "ai" | "general" | null;
   tiers: number[];
+  skippedBy: "you" | "auto" | null; // Skipped tab: skipped by you, or by Recon's rules
   sort: Sort;
   dir: "asc" | "desc";
 };
@@ -78,8 +79,8 @@ export function defaultDir(sort: Sort): "asc" | "desc" {
   return sort === "company" ? "asc" : "desc";
 }
 
-// "Load more": the list grows in pages of PAGE_SIZE, up to MAX_LIMIT
-export const PAGE_SIZE = 500;
+// "Load more": the list grows in pages of PAGE_SIZE, up to MAX_LIMIT (50 cards render fast on phones)
+export const PAGE_SIZE = 50;
 export const MAX_LIMIT = 5000;
 
 /** ?limit=1000 -> 1000; anything else -> the first page. */
@@ -113,6 +114,7 @@ export function parseFilters(p: Params, tab: string): Filters {
     hideClearance: p.get("clearance") === "hide",
     resume: oneOf(p.get("resume"), ["ai", "general"] as const),
     tiers: p.getAll("tier").map(Number).filter((t) => (TIERS as readonly number[]).includes(t)),
+    skippedBy: tab === "skipped" ? oneOf(p.get("by"), ["you", "auto"] as const) : null,
     sort,
     dir: oneOf(p.get("dir"), ["asc", "desc"] as const) ?? defaultDir(sort),
   };
@@ -140,6 +142,7 @@ export function toQuery(f: Filters, tab: string): string {
   if (f.hideClearance) q.set("clearance", "hide");
   if (f.resume) q.set("resume", f.resume);
   f.tiers.forEach((t) => q.append("tier", String(t)));
+  if (f.skippedBy && tab === "skipped") q.set("by", f.skippedBy);
   if (f.sort !== defaultSort(tab)) q.set("sort", f.sort);
   if (f.dir !== defaultDir(f.sort)) q.set("dir", f.dir);
   return q.toString();

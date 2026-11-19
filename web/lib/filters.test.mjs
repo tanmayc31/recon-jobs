@@ -40,9 +40,17 @@ test("company sorts A→Z by default; other sorts high to low", () => {
   assert.equal(parse("sort=posted").dir, "desc");
 });
 
-test("load more: limit grows in pages of 500, up to 5,000", () => {
-  assert.deepEqual(["1000", "5000", null, "750", "5500", "-500", "500"].map(parseLimit),
-    [1000, 5000, 500, 500, 500, 500, 500]);
+test("load more: limit grows in pages of 50, up to 5,000", () => {
+  assert.deepEqual(["100", "5000", null, "75", "5050", "-50", "50"].map(parseLimit),
+    [100, 5000, 50, 50, 50, 50, 50]);
+});
+
+test("Skipped: by you or by Recon's rules, only on that tab", () => {
+  assert.equal(parse("by=you", "skipped").skippedBy, "you");
+  assert.equal(parse("by=auto", "skipped").skippedBy, "auto");
+  assert.equal(parse("by=you", "new").skippedBy, null);
+  assert.equal(toQuery(parse("tab=skipped&by=auto", "skipped"), "skipped"), "tab=skipped&by=auto");
+  assert.ok(!toQuery(parse("by=auto", "skipped"), "new").includes("by=")); // doesn't follow you to other tabs
 });
 
 test("search and the Applied tab's sorts", () => {

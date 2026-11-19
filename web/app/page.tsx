@@ -5,11 +5,12 @@ import { ApplicationPanel } from "./application";
 import { ApplyLink, ApplyPrompt } from "./apply-prompt";
 import { FilterPanel } from "./filters";
 import { GoneButton } from "./gone-button";
+import { Locations } from "./locations";
 import { Menu } from "./menu";
 import { SearchBox } from "./search";
 import { SetDates } from "./set-dates";
 import { StatusButton } from "./status-button";
-import { ago, posted, updated } from "@/lib/dates";
+import { ago, day, posted, updated } from "@/lib/dates";
 import {
   type Application,
   PER_COMPANY,
@@ -20,8 +21,10 @@ import {
   type Stage,
   type Status,
   type Tab,
+  type Due,
   applicationStats,
   applicationsFor,
+  dueApplications,
   listCompanies,
   listJobs,
   recentAdded,
@@ -76,9 +79,10 @@ export default async function Home({ searchParams }: PageProps<"/">) {
     tabCounts(),
     listCompanies(),
     recentAdded(),
-    tab === "applied" ? stageCounts() : null,
-    tab === "applied" ? applicationStats() : null,
+    tab === "applied" ? stageCounts(filters) : null,
+    tab === "applied" ? applicationStats(filters) : null,
     tab === "applied" ? undatedApplications() : null,
+    dueApplications(),
   ]);
   const failed = new Set<string>();
   const value = <T,>(r: PromiseSettledResult<T>, section: string, fallback: T): T => {
@@ -94,6 +98,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const stages = value(results[4], "stages", null);
   const stats = value(results[5], "stats", null);
   const undated = value(results[6], "undated", null);
+  const due = value(results[7], "due dates", [] as Due[]);
   const apps = await applicationsFor(jobs.filter((j) => j.status === "applied").map((j) => j.job_id)).catch((e) => {
     console.error("dashboard: applications failed:", e instanceof Error ? e.message : e);
     failed.add("applications");
@@ -112,8 +117,9 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 pb-16">
       <header className="sticky top-0 z-10 -mx-4 border-b border-zinc-200 bg-zinc-50/90 px-4 pt-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold tracking-tight">Recon</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="flex-1 text-xl font-semibold tracking-tight">Recon</h1>
+          <AddJob recent={added} />
           <form action={logout}>
             <button className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">Log out</button>
           </form>
@@ -145,7 +151,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
           <Link href={`/?${params.toString()}`} className="font-medium underline">reload</Link> to try again.
         </p>
       )}
-      <AddJob recent={added} />
+      {due.length > 0 && <DueBanner due={due} />}
       <SearchBox key={tab} q={filters.q} tab={tab} />
       {undated && undated.length > 0 && <SetDates rows={undated} />}
 
@@ -188,6 +194,29 @@ export default async function Home({ searchParams }: PageProps<"/">) {
             })}
           </nav>
         </section>
+      )}
+
+      {tab === "skipped" && (
+        <nav className="mt-3 flex gap-1.5 text-sm" aria-label="Skipped by">
+          {([[null, "All"], ["you", "By you"], ["auto", "Auto-skipped"]] as const).map(([by, label]) => {
+            const on = filters.skippedBy === by;
+            const query = toQuery({ ...filters, skippedBy: by }, tab);
+            return (
+              <Link
+                key={label}
+                href={`/?${query}`}
+                aria-current={on ? "page" : undefined}
+                className={`rounded-full border px-3 py-1 ${
+                  on
+                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                    : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {label}
+              </Link>
+            );
+          })}
+        </nav>
       )}
 
       {/* search isn't in the key: typing must not remount the panel */}
@@ -257,9 +286,10 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
   // Applied cards: the application first (date, stage, timeline, details); the rest behind "⋯"
   const applied = job.status === "applied";
   const ids = job.ids?.length ? job.ids : [job.job_id];
-  const secondary = (
+  // behind "⋯" on every card: Gone? and the moves (Applied cards: the rating too)
+  const more = (
     <>
-      <Rate job={job} />
+      {applied && <Rate job={job} />}
       {!job.closed_at && <GoneButton jobId={job.job_id} />}
       {moves.map(([status, label]) => (
         <form key={status} action={setStatus}>
@@ -274,12 +304,12 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
   );
 
   return (
-    <li className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <li id={`job-${job.job_id}`} className="scroll-mt-32 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm target:ring-2 target:ring-amber-400 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-zinc-500">{job.company}</p>
           <h2 className="mt-0.5 font-semibold leading-snug">{job.title}</h2>
-          {job.location && <p className="mt-1 line-clamp-2 text-sm text-zinc-500">{job.location}</p>}
+          {job.location && <Locations text={job.location} />}
         </div>
         {!applied && <div className="flex shrink-0 items-center gap-1.5">
           {job.fit_score != null && <FitScore score={job.fit_score} />}
@@ -406,9 +436,38 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
         ) : (
           <ApplyLink ids={ids} title={job.title} company={job.company} url={job.url} />
         )}
-        {applied ? <Menu>{secondary}</Menu> : secondary}
+        {!applied && <Rate job={job} />}
+        <Menu>{more}</Menu>
       </div>
     </li>
+  );
+}
+
+// Deadlines and follow-ups due today or overdue, on every tab; each links to its card in Applied
+function DueBanner({ due }: { due: Due[] }) {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return (
+    <section aria-label="Due" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm dark:border-red-900 dark:bg-red-950/30">
+      <p className="font-medium text-red-900 dark:text-red-200">
+        Due {due.some((d) => d.due_on < today) ? "now" : "today"}
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {due.map((d) => (
+          <li key={`${d.job_id}:${d.kind}`}>
+            {/* a full page load: the browser scrolls to and highlights the card (:target) */}
+            <a
+              href={`/?tab=applied&q=${encodeURIComponent(d.title)}#job-${encodeURIComponent(d.job_id)}`}
+              className="text-red-800 underline decoration-red-300 underline-offset-2 hover:decoration-red-700 dark:text-red-300"
+            >
+              {d.kind === "deadline" ? "Deadline" : "Follow up"}: {d.company}, {d.title}
+            </a>{" "}
+            <span className="ml-1.5 text-red-700/80 dark:text-red-400/80">
+              {d.due_on === today ? "today" : `overdue since ${day(d.due_on)}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

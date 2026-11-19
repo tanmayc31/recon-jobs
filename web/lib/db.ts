@@ -135,6 +135,9 @@ function filterWhere(sql: postgres.Sql, f: Filters) {
   if (f.hideClearance) where.push(sql`COALESCE(j.reason, '') NOT LIKE '%clearance preferred%'`);
   if (f.resume) where.push(sql`j.ai_resume = ${f.resume}`);
   if (f.tiers.length) where.push(sql`j.tier IN ${sql(f.tiers)}`);
+  // Skipped tab: you moved it there, or Recon's rules skipped it (decision 'skip', still new/backlog)
+  if (f.skippedBy === "you") where.push(sql`j.status = 'skipped'`);
+  if (f.skippedBy === "auto") where.push(sql`j.status <> 'skipped'`);
   return where.reduce((all, w) => sql`${all} AND ${w}`, sql`TRUE`);
 }
 
@@ -335,29 +338,45 @@ export async function applicationsFor(jobIds: string[]): Promise<Map<string, App
   return out;
 }
 
-/** Applied tab: cards per stage (no application row yet: "applied"). */
-export async function stageCounts(): Promise<Record<Stage, number>> {
+/** Applied tab: cards per stage (no application row yet: "applied"), after the search and filters. */
+export async function stageCounts(f: Filters): Promise<Record<Stage, number>> {
   const sql = db();
   const rows = await timed(sql<{ stage: Stage; n: number }[]>`
     SELECT COALESCE(a.stage, 'applied') AS stage, COUNT(DISTINCT ${groupKey(sql)})::int AS n
-    FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
-    WHERE j.status = 'applied' GROUP BY 1`);
+    FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id LEFT JOIN sponsors sp ON sp.company = j.company
+    WHERE j.status = 'applied' AND ${filterWhere(sql, f)} GROUP BY 1`);
   const counts = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
   for (const r of rows) if (r.stage in counts) counts[r.stage] = r.n;
   return counts;
 }
 
-/** Applications (cards) this week (since Monday, Eastern), in all, and how many got an answer. */
-export async function applicationStats(): Promise<{ week: number; total: number; responded: number }> {
+/** Applications (cards) this week (since Monday, Eastern), in all, and how many got an answer,
+ *  after the search and filters. */
+export async function applicationStats(f: Filters): Promise<{ week: number; total: number; responded: number }> {
   const sql = db();
   const [row] = await timed(sql<{ week: number; total: number; responded: number }[]>`
     SELECT COUNT(DISTINCT ${groupKey(sql)}) FILTER (WHERE a.applied_at::timestamptz >=
              date_trunc('week', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')::int AS week,
            COUNT(DISTINCT ${groupKey(sql)})::int AS total,
            COUNT(DISTINCT ${groupKey(sql)}) FILTER (WHERE a.stage IN ${sql(RESPONDED)})::int AS responded
-    FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
-    WHERE j.status = 'applied'`);
+    FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id LEFT JOIN sponsors sp ON sp.company = j.company
+    WHERE j.status = 'applied' AND ${filterWhere(sql, f)}`);
   return row;
+}
+
+export type Due = { job_id: string; company: string; title: string; kind: "deadline" | "follow_up"; due_on: string };
+
+/** Deadlines and follow-ups due today or overdue (Eastern), for applications still in play. */
+export async function dueApplications(): Promise<Due[]> {
+  const sql = db();
+  return timed(sql<Due[]>`
+    SELECT DISTINCT ON (${groupKey(sql)}, d.kind) j.job_id, j.company, j.title, d.kind, d.due_on
+    FROM jobs j JOIN applications a ON a.job_id = j.job_id
+    CROSS JOIN LATERAL (VALUES ('deadline', a.deadline), ('follow_up', a.follow_up)) AS d(kind, due_on)
+    WHERE j.status = 'applied' AND a.stage NOT IN ('rejected', 'ghosted', 'withdrawn')
+      AND d.due_on IS NOT NULL AND d.due_on <= to_char(now() AT TIME ZONE 'America/New_York', 'YYYY-MM-DD')
+    ORDER BY ${groupKey(sql)}, d.kind, j.job_id
+    LIMIT 20`);
 }
 
 // "Add job": URLs you pasted, handled by recon/add.py (the same `added` table)

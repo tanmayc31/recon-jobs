@@ -17,6 +17,7 @@ const STATE: Record<string, string> = {
 };
 
 // Paste any job link: recon/add.py reads the real posting, runs the filters and the AI judge.
+// A compact button in the header; its box opens under the header's top row (order-last, full width).
 export function AddJob({ recent }: { recent: Added[] }) {
   const [note, action, pending] = useActionState(addJob, null);
   const router = useRouter();
@@ -29,19 +30,29 @@ export function AddJob({ recent }: { recent: Added[] }) {
   }, [waiting, router]);
 
   return (
-    <details
-      className="mt-3 rounded-xl border border-zinc-200 bg-white text-sm dark:border-zinc-800 dark:bg-zinc-900"
-      open={open}
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-    >
-      <summary className="cursor-pointer px-4 py-2.5 font-medium">Add job</summary>
-      <div className="space-y-3 border-t border-zinc-200 p-4 dark:border-zinc-800">
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="add-job"
+        className={`rounded-lg border px-2.5 py-1 text-sm font-medium ${
+          open
+            ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+            : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+        }`}
+      >
+        + Add job{waiting && <span className="ml-1 font-normal opacity-70">(adding…)</span>}
+      </button>
+      {open && (
+      <div id="add-job" className="order-last mt-1 basis-full space-y-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900">
         <form action={action} className="flex gap-2">
           <input
             name="url"
             type="url"
             required
             placeholder="Paste a job link (company site, Greenhouse, Workday…)"
+            autoFocus
             className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-2 dark:border-zinc-700"
           />
           <button disabled={pending} className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900">
@@ -75,6 +86,7 @@ export function AddJob({ recent }: { recent: Added[] }) {
           </ul>
         )}
       </div>
-    </details>
+      )}
+    </>
   );
 }

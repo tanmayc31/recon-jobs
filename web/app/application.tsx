@@ -52,11 +52,14 @@ export function ApplicationPanel({ ids, app }: { ids: string[]; app: Application
 
   return (
     <div className="mt-3 space-y-2 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-zinc-800 dark:text-zinc-200">{appliedLabel(app?.applied_at ?? null)}</span>
+      {/* phones: the date on its own line, then the badge and the stage menu side by side */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span className="basis-full font-medium text-zinc-800 sm:basis-auto dark:text-zinc-200">
+          {appliedLabel(app?.applied_at ?? null)}
+        </span>
         <StageBadge stage={stage} />
         <label className="ml-auto flex items-center gap-1.5 text-zinc-500">
-          <span>Stage</span>
+          <span className="sr-only sm:not-sr-only">Stage</span>
           <select
             value={stage}
             disabled={pending}
