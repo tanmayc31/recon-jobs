@@ -11,8 +11,27 @@ const globalForDb = globalThis as unknown as { sql?: postgres.Sql };
 function connect() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
-  // prepare: false -> works with Supabase's pooler; small pool for serverless
-  return postgres(url, { prepare: false, max: 5 });
+  // prepare: false -> works with Supabase's pooler; small pool for serverless. A frozen serverless
+  // function's idle connections die: close them after 20 s and recycle every 5 min, so a reused one
+  // can't hang the page (the 504s: the pooler waited on a half-sent query until its 2-min timeout)
+  return postgres(url, { prepare: false, max: 5, idle_timeout: 20, max_lifetime: 5 * 60, connect_timeout: 10 });
+}
+
+// The pooler ignores per-connection statement_timeout, so every query gets cancelled (on the server
+// too) after QUERY_MS: a slow page shows an error instead of hanging. Dashboard queries take < 100 ms.
+export const QUERY_MS = Number(process.env.DB_QUERY_MS) || 4000; // DB_QUERY_MS: for testing the error path
+
+export class QueryTimeout extends Error {}
+
+function timed<T extends readonly (object | undefined)[]>(q: postgres.PendingQuery<T>, ms = QUERY_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      q.cancel();
+      reject(new QueryTimeout(`Database query took longer than ${ms / 1000} s`));
+    }, ms);
+  });
+  return Promise.race([q, limit]).finally(() => clearTimeout(timer));
 }
 
 function db() {
@@ -141,9 +160,8 @@ export async function listJobs(
   stage: Stage | null = null, // Applied tab: one stage only
 ): Promise<{ jobs: JobRow[]; matching: number; hidden: number }> {
   const sql = db();
-  const byStage = tab === "applied" && stage
-    ? sql`COALESCE((SELECT a.stage FROM applications a WHERE a.job_id = j.job_id), 'applied') = ${stage}`
-    : sql`TRUE`;
+  // Applied tab: one stage (no application row yet counts as "applied"), a join, not a subquery per row
+  const byStage = tab === "applied" && stage ? sql`COALESCE(a.stage, 'applied') = ${stage}` : sql`TRUE`;
   const where = sql`${tabWhere(sql, tab)} AND ${filterWhere(sql, f)} AND ${byStage}`;
   const cap = tab === "best" && f.companies.length === 0 ? PER_COMPANY : 1_000_000;
   // rank: the job's place within its company; pos: its place overall (same sort)
@@ -156,23 +174,24 @@ export async function listJobs(
            COUNT(*) OVER (PARTITION BY j.company)::int AS company_total,
            ROW_NUMBER() OVER (ORDER BY ${orderBy(sql, f)}) AS pos
     FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
+         ${tab === "applied" ? sql`LEFT JOIN applications a ON a.job_id = j.job_id` : sql``}
     WHERE ${where}`;
   const [jobs, [count]] = await Promise.all([
-    sql<JobRow[]>`
+    timed(sql<JobRow[]>`
       SELECT *, CASE WHEN company_rank = ${cap} THEN company_total - ${cap} ELSE 0 END::int AS more
-      FROM (${ranked}) t WHERE company_rank <= ${cap} ORDER BY pos LIMIT ${limit}`,
-    sql<{ n: number; hidden: number }[]>`
+      FROM (${ranked}) t WHERE company_rank <= ${cap} ORDER BY pos LIMIT ${limit}`),
+    timed(sql<{ n: number; hidden: number }[]>`
       SELECT COUNT(*) FILTER (WHERE company_rank <= ${cap})::int AS n,
              COUNT(*) FILTER (WHERE company_rank > ${cap})::int AS hidden
-      FROM (${ranked}) t`,
+      FROM (${ranked}) t`),
   ]);
   return { jobs, matching: count.n, hidden: count.hidden };
 }
 
 /** Companies with at least one match, for the company picker. */
 export async function listCompanies(): Promise<string[]> {
-  const rows = await db()<{ company: string }[]>`
-    SELECT DISTINCT company FROM jobs WHERE decision = 'match' ORDER BY company`;
+  const rows = await timed(db()<{ company: string }[]>`
+    SELECT DISTINCT company FROM jobs WHERE decision = 'match' ORDER BY company`);
   return rows.map((r) => r.company);
 }
 
@@ -180,14 +199,14 @@ export async function tabCounts(): Promise<Record<Tab, number>> {
   const sql = db();
   // same conditions as the tabs themselves
   const counts = TABS.map((t) => sql`COUNT(*) FILTER (WHERE ${tabWhere(sql, t)})::int AS ${sql(t)}`);
-  const [row] = await sql`
+  const [row] = await timed(sql`
     SELECT ${counts.flatMap((c, i) => (i ? [sql`, `, c] : [c])).reduce((a, b) => sql`${a}${b}`)}
-    FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company`;
+    FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company`);
   return row as Record<Tab, number>;
 }
 
 export async function updateStatus(jobId: string, status: Status) {
-  await db()`UPDATE jobs SET status = ${status} WHERE job_id = ${jobId}`;
+  await timed(db()`UPDATE jobs SET status = ${status} WHERE job_id = ${jobId}`);
   if (status === "applied") await startApplication(jobId);
 }
 
@@ -201,63 +220,63 @@ const eventId = () => crypto.randomUUID().replace(/-/g, "");
 async function startApplication(jobId: string) {
   const sql = db();
   const at = now();
-  const [row] = await sql<{ applied_at: string | null }[]>`
+  const [row] = await timed(sql<{ applied_at: string | null }[]>`
     INSERT INTO applications (job_id, stage, applied_at, stage_at) VALUES (${jobId}, 'applied', ${at}, ${at})
     ON CONFLICT (job_id) DO UPDATE SET applied_at = COALESCE(applications.applied_at, EXCLUDED.applied_at)
-    RETURNING applied_at`;
+    RETURNING applied_at`);
   if (row.applied_at === at) {
-    await sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`;
+    await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`);
   }
 }
 
 export async function updateStage(jobId: string, stage: Stage) {
   const sql = db();
   const at = now();
-  await sql`INSERT INTO applications (job_id, stage, stage_at) VALUES (${jobId}, ${stage}, ${at})
-            ON CONFLICT (job_id) DO UPDATE SET stage = EXCLUDED.stage, stage_at = EXCLUDED.stage_at`;
-  await sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, ${stage}, ${at})`;
+  await timed(sql`INSERT INTO applications (job_id, stage, stage_at) VALUES (${jobId}, ${stage}, ${at})
+            ON CONFLICT (job_id) DO UPDATE SET stage = EXCLUDED.stage, stage_at = EXCLUDED.stage_at`);
+  await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, ${stage}, ${at})`);
 }
 
 /** Your details; empty fields are cleared. appliedOn (YYYY-MM-DD) sets the applied date, e.g. for
  *  jobs applied before Recon tracked dates. */
 export async function updateDetails(jobId: string, details: Record<Detail, string | null>, appliedOn: string | null) {
   const sql = db();
-  await sql`INSERT INTO applications (job_id) VALUES (${jobId}) ON CONFLICT (job_id) DO NOTHING`;
-  await sql`UPDATE applications SET ${sql(details, ...DETAILS)} WHERE job_id = ${jobId}`;
+  await timed(sql`INSERT INTO applications (job_id) VALUES (${jobId}) ON CONFLICT (job_id) DO NOTHING`);
+  await timed(sql`UPDATE applications SET ${sql(details, ...DETAILS)} WHERE job_id = ${jobId}`);
   if (appliedOn) {
     // noon UTC: the same calendar day in every US time zone
     const at = `${appliedOn}T12:00:00+00:00`;
-    const changed = await sql`UPDATE applications SET applied_at = ${at} WHERE job_id = ${jobId}
-              AND COALESCE(substr(applied_at, 1, 10), '') <> ${appliedOn} RETURNING job_id`;
+    const changed = await timed(sql`UPDATE applications SET applied_at = ${at} WHERE job_id = ${jobId}
+              AND COALESCE(substr(applied_at, 1, 10), '') <> ${appliedOn} RETURNING job_id`);
     if (changed.length) {
       // the timeline starts on the corrected day: move its first "applied", or add one
-      const [first] = await sql<{ id: string }[]>`SELECT id FROM application_events
-        WHERE job_id = ${jobId} AND stage = 'applied' ORDER BY at LIMIT 1`;
-      if (first) await sql`UPDATE application_events SET at = ${at} WHERE id = ${first.id}`;
-      else await sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`;
+      const [first] = await timed(sql<{ id: string }[]>`SELECT id FROM application_events
+        WHERE job_id = ${jobId} AND stage = 'applied' ORDER BY at LIMIT 1`);
+      if (first) await timed(sql`UPDATE application_events SET at = ${at} WHERE id = ${first.id}`);
+      else await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`);
     }
   }
 }
 
 /** "AI prep": recon/prep.py writes it (GitHub Actions, the judge's Gemini key and profile). */
 export async function queuePrep(jobId: string) {
-  await db()`UPDATE applications SET prep_state = 'queued' WHERE job_id = ${jobId}`;
+  await timed(db()`UPDATE applications SET prep_state = 'queued' WHERE job_id = ${jobId}`);
 }
 
 export async function updatePrep(jobId: string, prep: string) {
-  await db()`UPDATE applications SET prep = ${prep || null} WHERE job_id = ${jobId}`;
+  await timed(db()`UPDATE applications SET prep = ${prep || null} WHERE job_id = ${jobId}`);
 }
 
 export async function applicationsFor(jobIds: string[]): Promise<Map<string, Application>> {
   if (!jobIds.length) return new Map();
   const sql = db();
   const [apps, events] = await Promise.all([
-    sql<Omit<Application, "events">[]>`
+    timed(sql<Omit<Application, "events">[]>`
       SELECT job_id, stage, applied_at, stage_at, notes, referral, resume, contact, link, deadline, follow_up,
              prep, prep_state
-      FROM applications WHERE job_id IN ${sql(jobIds)}`,
-    sql<{ job_id: string; stage: Stage; at: string }[]>`
-      SELECT job_id, stage, at FROM application_events WHERE job_id IN ${sql(jobIds)} ORDER BY at`,
+      FROM applications WHERE job_id IN ${sql(jobIds)}`),
+    timed(sql<{ job_id: string; stage: Stage; at: string }[]>`
+      SELECT job_id, stage, at FROM application_events WHERE job_id IN ${sql(jobIds)} ORDER BY at`),
   ]);
   const out = new Map(apps.map((a) => [a.job_id, { ...a, events: [] as Application["events"] }]));
   for (const e of events) out.get(e.job_id)?.events.push({ stage: e.stage, at: e.at });
@@ -266,10 +285,10 @@ export async function applicationsFor(jobIds: string[]): Promise<Map<string, App
 
 /** Applied tab: jobs per stage (no application row yet: "applied"). */
 export async function stageCounts(): Promise<Record<Stage, number>> {
-  const rows = await db()<{ stage: Stage; n: number }[]>`
+  const rows = await timed(db()<{ stage: Stage; n: number }[]>`
     SELECT COALESCE(a.stage, 'applied') AS stage, COUNT(*)::int AS n
     FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
-    WHERE j.status = 'applied' GROUP BY 1`;
+    WHERE j.status = 'applied' GROUP BY 1`);
   const counts = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
   for (const r of rows) if (r.stage in counts) counts[r.stage] = r.n;
   return counts;
@@ -277,13 +296,13 @@ export async function stageCounts(): Promise<Record<Stage, number>> {
 
 /** Applications this week (since Monday, Eastern), in all, and how many got an answer. */
 export async function applicationStats(): Promise<{ week: number; total: number; responded: number }> {
-  const [row] = await db()<{ week: number; total: number; responded: number }[]>`
+  const [row] = await timed(db()<{ week: number; total: number; responded: number }[]>`
     SELECT COUNT(*) FILTER (WHERE a.applied_at::timestamptz >=
              date_trunc('week', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')::int AS week,
            COUNT(*)::int AS total,
            COUNT(*) FILTER (WHERE a.stage IN ${db()(RESPONDED)})::int AS responded
     FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
-    WHERE j.status = 'applied'`;
+    WHERE j.status = 'applied'`);
   return row;
 }
 
@@ -293,39 +312,39 @@ export type Added = { id: string; url: string; added_at: string; state: string; 
 const now = () => new Date().toISOString().slice(0, 19) + "+00:00";
 
 export async function queueAdded(url: string) {
-  await db()`INSERT INTO added (id, url, added_at, state) VALUES (${crypto.randomUUID().replace(/-/g, "")}, ${url}, ${now()}, 'queued')`;
+  await timed(db()`INSERT INTO added (id, url, added_at, state) VALUES (${crypto.randomUUID().replace(/-/g, "")}, ${url}, ${now()}, 'queued')`);
 }
 
 export async function recentAdded(limit = 5): Promise<Added[]> {
-  return db()<Added[]>`SELECT id, url, added_at, state, message, job_id FROM added ORDER BY added_at DESC LIMIT ${limit}`;
+  return timed(db()<Added[]>`SELECT id, url, added_at, state, message, job_id FROM added ORDER BY added_at DESC LIMIT ${limit}`);
 }
 
 /** "Keep anyway": the filters skipped it, you want it. recon/store.py keeps your matches matches. */
 export async function keepAdded(id: string): Promise<boolean> {
   const sql = db();
-  const [row] = await sql<{ job_id: string | null }[]>`SELECT job_id FROM added WHERE id = ${id} AND state = 'skipped'`;
+  const [row] = await timed(sql<{ job_id: string | null }[]>`SELECT job_id FROM added WHERE id = ${id} AND state = 'skipped'`);
   if (!row?.job_id) return false;
-  await sql`UPDATE jobs SET decision = 'match', status = 'new', via = 'you', closed_at = NULL,
-            reason = 'kept: ' || COALESCE(reason, ''), ai_skip = NULL WHERE job_id = ${row.job_id}`;
-  await sql`UPDATE added SET state = 'kept', message = 'Kept in New (the AI judges it next)' WHERE id = ${id}`;
+  await timed(sql`UPDATE jobs SET decision = 'match', status = 'new', via = 'you', closed_at = NULL,
+            reason = 'kept: ' || COALESCE(reason, ''), ai_skip = NULL WHERE job_id = ${row.job_id}`);
+  await timed(sql`UPDATE added SET state = 'kept', message = 'Kept in New (the AI judges it next)' WHERE id = ${id}`);
   return true;
 }
 
 /** For "Gone?": what the site's API needs, read from the database (not from the form). */
 export async function jobForCheck(jobId: string) {
-  const [row] = await db()<{ job_id: string; source: string; url: string; source_ids: string | null }[]>`
-    SELECT job_id, source, url, source_ids FROM jobs WHERE job_id = ${jobId}`;
+  const [row] = await timed(db()<{ job_id: string; source: string; url: string; source_ids: string | null }[]>`
+    SELECT job_id, source, url, source_ids FROM jobs WHERE job_id = ${jobId}`);
   return row ?? null;
 }
 
 /** The site says it's gone: same as recon/store.py close_jobs. */
 export async function closeJob(jobId: string) {
   const at = new Date().toISOString().slice(0, 19) + "+00:00";
-  await db()`UPDATE jobs SET closed_at = ${at}, closed_reason = 'api' WHERE job_id = ${jobId} AND closed_at IS NULL`;
+  await timed(db()`UPDATE jobs SET closed_at = ${at}, closed_reason = 'api' WHERE job_id = ${jobId} AND closed_at IS NULL`);
 }
 
 /** null clears the rating. rated_at uses the poller's format (UTC ISO, seconds). */
 export async function updateRating(jobId: string, rating: Rating | null) {
   const at = rating === null ? null : new Date().toISOString().slice(0, 19) + "+00:00";
-  await db()`UPDATE jobs SET my_rating = ${rating}, rated_at = ${at} WHERE job_id = ${jobId}`;
+  await timed(db()`UPDATE jobs SET my_rating = ${rating}, rated_at = ${at} WHERE job_id = ${jobId}`);
 }

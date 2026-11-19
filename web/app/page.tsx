@@ -62,7 +62,9 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const filters = parseFilters(params, tab);
   const limit = parseLimit(params.get("limit")); // not a filter: changing a filter starts over at one page
   const stage = tab === "applied" && STAGES.includes(params.get("stage") as Stage) ? (params.get("stage") as Stage) : null;
-  const [{ jobs, matching, hidden }, counts, companies, added, stages, stats] = await Promise.all([
+  // each section on its own: a failing (or timed-out, lib/db.ts QUERY_MS) query shows a note there
+  // instead of taking the whole page down
+  const results = await Promise.allSettled([
     listJobs(tab, filters, limit, stage),
     tabCounts(),
     listCompanies(),
@@ -70,7 +72,24 @@ export default async function Home({ searchParams }: PageProps<"/">) {
     tab === "applied" ? stageCounts() : null,
     tab === "applied" ? applicationStats() : null,
   ]);
-  const apps = await applicationsFor(jobs.filter((j) => j.status === "applied").map((j) => j.job_id));
+  const failed = new Set<string>();
+  const value = <T,>(r: PromiseSettledResult<T>, section: string, fallback: T): T => {
+    if (r.status === "fulfilled") return r.value;
+    console.error(`dashboard: ${section} failed:`, r.reason instanceof Error ? r.reason.message : r.reason);
+    failed.add(section);
+    return fallback;
+  };
+  const { jobs, matching, hidden } = value(results[0], "jobs", { jobs: [] as JobRow[], matching: 0, hidden: 0 });
+  const counts = value(results[1], "counts", null);
+  const companies = value(results[2], "companies", [] as string[]);
+  const added = value(results[3], "added", []);
+  const stages = value(results[4], "stages", null);
+  const stats = value(results[5], "stats", null);
+  const apps = await applicationsFor(jobs.filter((j) => j.status === "applied").map((j) => j.job_id)).catch((e) => {
+    console.error("dashboard: applications failed:", e instanceof Error ? e.message : e);
+    failed.add("applications");
+    return new Map<string, Application>();
+  });
   const active = activeCount(filters);
   const base = toQuery(filters, tab); // this tab with its filters, before the stage
   const withStage = (s: Stage | null) => `/?${[base || "tab=applied", s && `stage=${s}`].filter(Boolean).join("&")}`;
@@ -97,7 +116,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
                     : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                 }`}
               >
-                {LABELS[t]} <span className="text-zinc-400">{counts[t]}</span>
+                {LABELS[t]} {counts && <span className="text-zinc-400">{counts[t]}</span>}
               </Link>
             );
           })}
@@ -105,6 +124,12 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       </header>
 
       <ApplyPrompt />
+      {failed.size > 0 && (
+        <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          Couldn&apos;t load {[...failed].join(", ")}: the database didn&apos;t answer in time. The rest of the page works;{" "}
+          <Link href={`/?${params.toString()}`} className="font-medium underline">reload</Link> to try again.
+        </p>
+      )}
       <AddJob recent={added} />
 
       {stats && stages && (
@@ -152,8 +177,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
       <div className="mt-3 flex items-center justify-between gap-3 text-sm text-zinc-500">
         <p>
-          Showing <span className="font-medium text-zinc-800 dark:text-zinc-200">{matching.toLocaleString()}</span> of{" "}
-          {counts[tab].toLocaleString()}
+          Showing <span className="font-medium text-zinc-800 dark:text-zinc-200">{matching.toLocaleString()}</span>
+          {counts && ` of ${counts[tab].toLocaleString()}`}
           {matching > limit && ` (first ${limit.toLocaleString()} listed)`}
           {hidden > 0 && ` · ${hidden.toLocaleString()} more past ${PER_COMPANY} per company`}
         </p>
@@ -179,7 +204,9 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         </Link>
       )}
       {jobs.length === 0 && (
-        <p className="mt-16 text-center text-zinc-500">{active ? "No jobs match these filters." : "Nothing here."}</p>
+        <p className="mt-16 text-center text-zinc-500">
+          {failed.has("jobs") ? "Jobs didn't load. Reload to try again." : active ? "No jobs match these filters." : "Nothing here."}
+        </p>
       )}
     </div>
   );

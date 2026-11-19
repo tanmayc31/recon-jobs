@@ -112,6 +112,18 @@ CREATE TABLE IF NOT EXISTS application_events (
 );
 """]
 
+# the dashboard's tab filters and sorts (web/lib/db.ts); applications.job_id is its primary key.
+# Made after the column migrations below: old tables get closed_at, posted_on, ... first
+INDEXES = [
+    "CREATE INDEX IF NOT EXISTS jobs_tab ON jobs (status, decision, closed_at)",
+    "CREATE INDEX IF NOT EXISTS jobs_decision ON jobs (decision)",
+    "CREATE INDEX IF NOT EXISTS jobs_closed_at ON jobs (closed_at)",
+    "CREATE INDEX IF NOT EXISTS jobs_company ON jobs (company)",
+    "CREATE INDEX IF NOT EXISTS jobs_fit_score ON jobs (fit_score)",
+    "CREATE INDEX IF NOT EXISTS jobs_first_seen_at ON jobs (first_seen_at)",
+    "CREATE INDEX IF NOT EXISTS jobs_posted_on ON jobs (posted_on)",
+    "CREATE INDEX IF NOT EXISTS application_events_job_id ON application_events (job_id)"]
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -165,6 +177,9 @@ class Store:
                            ("missed_runs", "INTEGER DEFAULT 0"), ("closed_at", "TEXT"),
                            ("closed_reason", "TEXT"), ("level", "TEXT"), ("via", "TEXT")] + AI_COLUMNS:
             self.add_column(name, kind)   # tables made before these existed
+        for statement in INDEXES:
+            self.db.execute(statement)
+        self.db.commit()
         self.backfill()
 
     def add_column(self, name: str, kind: str):
