@@ -113,7 +113,7 @@ doesn't work around it.
 
 ## SmartRecruiters
 recon/sources/smartrecruiters.py reads SmartRecruiters companies (ServiceNow, AbbVie, Nagarro, ASML,
-Tech Mahindra, Mindlance) through the public Posting API: every US posting, then descriptions for
+Tech Mahindra) through the public Posting API: every US posting, then descriptions for
 new matches; companies.csv slug is the identifier in careers.smartrecruiters.com/<slug>. A gone
 posting answers 404 (or active: false).
 
