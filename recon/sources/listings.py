@@ -6,7 +6,8 @@ Lists (credited in the README), one companies.csv row each, e.g.
   SimplifyJobs/New-Grad-Positions     no license: personal use only
   speedyapply/2027-SWE-College-Jobs   no license: personal use only
 Rows from the personal-use lists live only in the database (the repo is public): recon.discover
-and recon.sponsors, which write committed files, read only the lists marked reusable.
+and recon.sponsors, which write committed files, read only the lists marked reusable. The
+personal-use lists run only when RECON_PERSONAL_LISTS=1 (off in a fork: see the README).
 
 Each active row that passes the title/location filter is resolved once (vanshb03's go.vansh.nyc
 links redirect to the real posting; a link already on a job board isn't requested). Greenhouse, Lever, Ashby and Workday postings get our usual job
@@ -18,6 +19,7 @@ goes into the description, so the eligibility gates still apply.
 """
 import asyncio
 import hashlib
+import os
 import html
 import re
 import time
@@ -40,6 +42,11 @@ LISTS = {   # repo -> (format, URL, license allows reuse)
         "markdown", "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/NEW_GRAD_USA.md", False),
 }
 REUSABLE = [repo for repo, (_, _, ok) in LISTS.items() if ok]
+
+
+def enabled(repo: str) -> bool:
+    """A reusable list always; a personal-use one only with RECON_PERSONAL_LISTS=1."""
+    return LISTS[repo][2] or os.environ.get("RECON_PERSONAL_LISTS") == "1"
 SKIP_LINK = re.compile(r"^https?://(www\.)?simplify\.jobs/", re.I)   # Simplify's own pages, not the posting
 SHORT_LINK = re.compile(r"^https?://go\.vansh\.nyc/", re.I)
 BUDGET = 4.5 * 60   # seconds of resolving per list per run; what's left waits for the next run
@@ -168,6 +175,9 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
     lists retitle jobs: TikTok's "...Graduate - 2027 Start (PhD)" became "New Grad 2027: ...")."""
     company["partial"] = True   # a list isn't a company's whole board: never used to auto-close
     repo, done = company["slug"], set(company.get("list_ids", ()))
+    if not enabled(repo):
+        print(f"{repo}: personal-use list, off (set RECON_PERSONAL_LISTS=1 to read it)")
+        return []
     covered, urls = company.get("covered", set()), company.get("urls", set())
     direct = company.get("direct", set())
     todo = []

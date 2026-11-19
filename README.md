@@ -1,6 +1,95 @@
 # Recon
 Intel on new tech roles, the minute they drop.
 
+## Run your own Recon
+For someone who forks this repo. Recon polls company job boards, filters for the roles you want,
+scores them against your profile with Gemini, and shows them on a private dashboard. It never
+applies to jobs. Everything below fits in free tiers.
+
+### Accounts you need
+| Account | What for |
+|---|---|
+| GitHub | your fork, and GitHub Actions to run the scans |
+| Supabase | the Postgres database (jobs, applications, sponsors) |
+| Vercel | the dashboard (web/, Next.js) |
+| Google AI Studio | a Gemini API key for the AI judge and AI prep |
+| cron-job.org | triggers the scans on time (GitHub's own cron is unreliable) |
+
+### Setup, in order
+1. **Fork** the repo. Keep it private if you'll add private contacts or edit the company list
+   with anything personal; secrets are never in the repo either way.
+2. **Supabase**: create a project. Copy the connection string from Connect, "Transaction pooler"
+   (port 6543), with your database password filled in. That's `DATABASE_URL`. Recon creates its
+   tables on the first run.
+3. **Local run** (optional, but the fastest way to see it work):
+   `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`, then
+   create a file named `.env` in the repo root (it's gitignored) with `DATABASE_URL=...` (and
+   `GEMINI_API_KEY=...` for the judge). Load the H-1B sponsor table once:
+   `python -m recon.sponsors --load`.
+4. **Your profile**: copy `config/profile.example.md` to `config/profile.md` (gitignored) and
+   rewrite it for yourself (see "Your profile" below).
+5. **GitHub secrets** (Settings → Secrets and variables → Actions → Secrets):
+   - `DATABASE_URL`: the Supabase string from step 2
+   - `GEMINI_API_KEY`: from Google AI Studio (Get API key)
+   - `CANDIDATE_PROFILE`: the whole text of your profile.md
+   - optional, only for the Jobright email source: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`,
+     `GMAIL_REFRESH_TOKEN`, `JOBRIGHT_SENDER`
+6. **GitHub variables** (same page, Variables tab): leave `RECON_PERSONAL_LISTS` unset. See
+   "Job lists" below.
+7. **Vercel**: Add New → Project → import your fork, Root Directory `web`. Environment variables:
+   - `DATABASE_URL`: the same string
+   - `DASHBOARD_PASSWORD`: the password you'll log in with (pick a long one)
+   - optional `GITHUB_DISPATCH_TOKEN`: a fine-grained GitHub token for your fork with
+     Actions: read and write, so "Add job" and "AI prep" start right away instead of at the next
+     scan
+   - optional `GITHUB_REPO`: `owner/name` of your fork (defaults to the repo Vercel deployed)
+8. **cron-job.org**: create a fine-grained GitHub token for your fork (Actions: read and write),
+   then one job per lane, each a POST to
+   `https://api.github.com/repos/<you>/<repo>/actions/workflows/recon.yml/dispatches` with headers
+   `Authorization: Bearer <token>`, `Accept: application/vnd.github+json` and body
+   `{"ref":"main","inputs":{"lane":"1-2"}}`. Lanes: `1-2` every 30 minutes, `3-other` every 3
+   hours, `3-workday` every 6 hours. The weekly recheck and the daily open check run on GitHub's
+   own schedule.
+9. **Companies**: `config/companies.csv` lists the boards (company, ats, slug, tier). Tier 1-2 run
+   every 30 minutes; Tier 3 less often. Add or remove rows; `python -m recon.detect <slug>` tells
+   you which board a company uses, and "Add a company" below has the formats.
+
+### Your profile
+Plain text the AI judge reads to score each job (fit 0-100, which resume, what's missing):
+your status (degree, graduation date, start date), work authorization, years of experience,
+target roles and locations, skills, experience and projects with numbers, and which resume to
+use for what. `config/profile.example.md` is a template. Emails, phone numbers and links are
+stripped before anything is sent to Gemini. Keep the GitHub secret and your local file in sync.
+
+### Change the filters for your own search
+| You want | Change |
+|---|---|
+| Other locations | `recon/filters.py`: `US`, `NON_US`, `US_STATE`. Several scanners also ask the site for US jobs only (Oracle, Google, Apple, ByteDance/TikTok, SmartRecruiters `country=us`, Eightfold `location`, SuccessFactors `locationsearch`, Workday's US facet); change those too. |
+| Another level | `recon/filters.py`: `EXCLUDE` (senior, staff, lead, levels 3-9, ...) and `STUDENT` (interns); `recon/eligibility.py`: `MAX_YEARS`; `recon/judge.py`: `MY_YEARS`, `MAX_YEARS`; `recon/roles.py`: `level`. |
+| No sponsorship needed | `recon/eligibility.py`: drop the "no sponsorship" entry in `BLOCKERS`; `recon/judge.py`: `veto` (the `sponsorship == "no"` line); `web/lib/db.ts`: Best bets requires an H-1B sponsor (`sp.filings > 0`). Citizenship/clearance stays a gate unless you're a citizen. |
+| Other roles | `recon/filters.py`: `ROLE` (what the title must name) and `ENG` (must be an engineer/developer); `recon/roles.py`: `role_type` for the dashboard's role filter. |
+| Your graduation dates | `recon/eligibility.py`: `YOU_GRADUATE`, `EARLIEST_START`, `MIN_CAP_YEARS`. |
+| What counts as a Best bet | `web/lib/db.ts`: `MAX_BEST_YEARS`, `MIN_BEST_FIT`, `PER_COMPANY`. |
+
+Every filter change gets a test with a real title or location in `tests/`; after changing rules,
+run the workflow once with "recheck" on so old jobs are judged again.
+
+### Job lists
+The MIT-licensed vanshb03/New-Grad-2027 list runs in every fork. The Simplify and speedyapply
+lists have no license and are for the original owner's personal use only: they're off unless
+the `RECON_PERSONAL_LISTS` variable is `1`, and a fork should leave it off.
+
+### Test that it works
+1. `python -m pytest -q`: every test passes (no network, no database).
+2. `python -m recon.main --tiers 1`: a local scan of Tier 1 prints the companies checked and the
+   matches found, and fills your database.
+3. GitHub → Actions → recon → Run workflow (lane `1-2`): the run finishes green; the judge job
+   scores the new matches.
+4. Open your Vercel URL, log in, and check that Best bets, New and Backlog have jobs.
+5. `python -m recon.linkcheck`: opens a sample of Apply links in a browser (needs
+   `pip install playwright && python -m playwright install chromium`) and reports any that don't
+   open a real, open job.
+
 ## v1 step 1
 
 ## Setup
@@ -77,12 +166,14 @@ The Tier 1-2 lane also reads [vanshb03/New-Grad-2027](https://github.com/vanshb0
 (recon/sources/listings.py): jobs from companies we can't scan directly. Each row's link is
 resolved to the real posting; Greenhouse/Lever/Ashby/Workday postings are read through their APIs,
 anything else is judged on its page or on the list's title, company and location ("from list").
-It also reads [SimplifyJobs/New-Grad-Positions](https://github.com/SimplifyJobs/New-Grad-Positions)
+With `RECON_PERSONAL_LISTS=1` (the owner's deployment only; off in a fork) it also reads
+[SimplifyJobs/New-Grad-Positions](https://github.com/SimplifyJobs/New-Grad-Positions)
 and [speedyapply/2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs) for
 the owner's personal use only: they have no license, so nothing from them is committed here. Their
 rows live only in Recon's private database, simplify.jobs links are skipped, and recon.discover
 and recon.sponsors (which write committed files) read only the MIT list. A job any source
-already has (same job ID, link, or company + title) isn't added again.
+already has (same job ID, link, or company + title) isn't added again, nor any job at a company
+whose whole board Recon reads itself.
 A company's first run is saved as backlog, not shown as new.
 
 ## Eightfold

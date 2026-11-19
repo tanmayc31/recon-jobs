@@ -131,3 +131,16 @@ def test_simplify_pages_are_skipped_and_short_links_only_are_resolved(monkeypatc
 
 def test_personal_use_lists_never_feed_committed_files():
     assert listings.REUSABLE == ["vanshb03/New-Grad-2027"]
+
+
+def test_personal_use_lists_are_off_unless_turned_on(monkeypatch):
+    monkeypatch.delenv("RECON_PERSONAL_LISTS", raising=False)
+    assert listings.enabled("vanshb03/New-Grad-2027")                 # MIT: always
+    assert not listings.enabled("SimplifyJobs/New-Grad-Positions")    # no license: off in a fork
+    assert not listings.enabled("speedyapply/2027-SWE-College-Jobs")
+    calls = []
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: calls.append(r) or httpx.Response(500)))
+    co = {"company": "Simplify New-Grad list", "ats": "listings", "slug": "SimplifyJobs/New-Grad-Positions", "tier": "2"}
+    assert asyncio.run(listings.fetch(client, co)) == [] and calls == [] and co["partial"] is True
+    monkeypatch.setenv("RECON_PERSONAL_LISTS", "1")
+    assert listings.enabled("SimplifyJobs/New-Grad-Positions")

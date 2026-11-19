@@ -79,7 +79,11 @@ async def ashby_board(client: httpx.AsyncClient, slug: str) -> set[str] | None:
 
 
 async def list_rows(client: httpx.AsyncClient) -> set[str] | None:
-    """Row IDs still active on the job lists, or None if a list didn't load."""
+    """Row IDs still active on the job lists, or None if a list didn't load or is turned off
+    (personal-use lists without RECON_PERSONAL_LISTS=1): then only the page load counts, so a run
+    without the setting never closes jobs those lists brought in."""
+    if not all(listings.enabled(repo) for repo in listings.LISTS):
+        return None
     try:
         return {r["id"] for repo in listings.LISTS for r in await listings.rows(client, repo)}
     except (httpx.HTTPError, ValueError):

@@ -59,6 +59,8 @@ jobs:
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
           JOBRIGHT_SENDER: ${{ secrets.JOBRIGHT_SENDER }}
+          # "1" turns on the personal-use job lists (Simplify, speedyapply); off in a fork
+          RECON_PERSONAL_LISTS: ${{ vars.RECON_PERSONAL_LISTS }}
           ARGS: ${{ inputs.args }}
           RECHECK: ${{ inputs.recheck && '--recheck' || '' }}
         run: |

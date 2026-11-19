@@ -3,7 +3,13 @@ import "server-only";
 // Starts recon.add right away through GitHub Actions (workflow_dispatch, lane "add").
 // Needs GITHUB_DISPATCH_TOKEN: a fine-grained token for this repository with Actions: read and
 // write, and nothing else. Without it, the next Tier 1-2 run (every 30 minutes) picks it up.
-const REPO = process.env.GITHUB_REPO ?? "tanmayc31/recon-jobs";
+// GITHUB_REPO ("owner/name"), else the repo Vercel deployed from (its system env vars), so a fork
+// starts its own workflow
+const REPO =
+  process.env.GITHUB_REPO ??
+  (process.env.VERCEL_GIT_REPO_OWNER && process.env.VERCEL_GIT_REPO_SLUG
+    ? `${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}`
+    : "tanmayc31/recon-jobs");
 
 export async function dispatchAdd(): Promise<boolean> {
   const token = process.env.GITHUB_DISPATCH_TOKEN;

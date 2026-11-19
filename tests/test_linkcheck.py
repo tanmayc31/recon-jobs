@@ -116,6 +116,7 @@ def test_rendered_page_verdicts():
 def test_list_jobs_are_open_while_listed_and_the_page_loads(monkeypatch):
     from recon.sources import listings
     monkeypatch.setattr(linkcheck, "DELAY", 0)
+    monkeypatch.setenv("RECON_PERSONAL_LISTS", "1")   # every list on: membership counts
 
     def lists(req):
         url = str(req.url)
@@ -328,3 +329,12 @@ def test_successfactors_open_and_gone(monkeypatch):
         job("successfactors:careers.ey.com:1450048533", "successfactors", base + "1450048533/"),
     ], httpx.MockTransport(h)))}
     assert got == {"successfactors:careers.ey.com:1000000001": False, "successfactors:careers.ey.com:1450048533": True}
+
+
+def test_with_personal_lists_off_only_the_page_load_counts(monkeypatch):
+    # a fork (or a run without the setting) never closes a job because a list it can't read lacks it
+    monkeypatch.delenv("RECON_PERSONAL_LISTS", raising=False)
+    calls = []
+    assert asyncio.run(linkcheck.list_rows(httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda r: calls.append(r) or httpx.Response(500))))) is None
+    assert calls == []

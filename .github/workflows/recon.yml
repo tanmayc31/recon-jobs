@@ -83,6 +83,7 @@ jobs:
       - name: Close gone jobs (counts only; logs are public)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RECON_PERSONAL_LISTS: ${{ vars.RECON_PERSONAL_LISTS }}
           CI: "true"
         run: python -m recon.linkcheck --recheck-open
 
