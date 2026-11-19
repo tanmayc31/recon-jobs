@@ -364,6 +364,24 @@ export async function applicationStats(f: Filters): Promise<{ week: number; tota
   return row;
 }
 
+// Google allows 3 applications per 30 days: yours, counted from the Applied tab (dated ones)
+export const GOOGLE_LIMIT = 3;
+export type GoogleQuota = { used: number; nextFree: string | null }; // nextFree: when a slot opens, if all used
+
+export async function googleQuota(): Promise<GoogleQuota> {
+  const sql = db();
+  const rows = await timed(sql<{ applied_at: string }[]>`
+    SELECT min(a.applied_at) AS applied_at
+    FROM jobs j JOIN applications a ON a.job_id = j.job_id
+    WHERE j.company = 'Google' AND j.status = 'applied'
+      AND a.applied_at::timestamptz >= now() - interval '30 days'
+    GROUP BY ${groupKey(sql)} ORDER BY 1`);
+  const used = rows.length;
+  const nextFree =
+    used >= GOOGLE_LIMIT ? new Date(Date.parse(rows[0].applied_at) + 30 * 24 * 3600 * 1000).toISOString() : null;
+  return { used, nextFree };
+}
+
 export type Due = { job_id: string; company: string; title: string; kind: "deadline" | "follow_up"; due_on: string };
 
 /** Deadlines and follow-ups due today or overdue (Eastern), for applications still in play. */

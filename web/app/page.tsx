@@ -22,9 +22,12 @@ import {
   type Status,
   type Tab,
   type Due,
+  GOOGLE_LIMIT,
+  type GoogleQuota,
   applicationStats,
   applicationsFor,
   dueApplications,
+  googleQuota,
   listCompanies,
   listJobs,
   recentAdded,
@@ -83,6 +86,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
     tab === "applied" ? applicationStats(filters) : null,
     tab === "applied" ? undatedApplications() : null,
     dueApplications(),
+    googleQuota(),
   ]);
   const failed = new Set<string>();
   const value = <T,>(r: PromiseSettledResult<T>, section: string, fallback: T): T => {
@@ -99,6 +103,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const stats = value(results[5], "stats", null);
   const undated = value(results[6], "undated", null);
   const due = value(results[7], "due dates", [] as Due[]);
+  const google = value(results[8], "Google count", null as GoogleQuota | null);
   const apps = await applicationsFor(jobs.filter((j) => j.status === "applied").map((j) => j.job_id)).catch((e) => {
     console.error("dashboard: applications failed:", e instanceof Error ? e.message : e);
     failed.add("applications");
@@ -244,7 +249,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
       <ul className="mt-3 space-y-3">
         {jobs.map((job) => (
-          <JobCard key={job.job_id} job={job} tab={tab} filters={filters} app={apps.get(job.job_id) ?? null} />
+          <JobCard key={job.job_id} job={job} tab={tab} filters={filters} app={apps.get(job.job_id) ?? null} google={google} />
         ))}
       </ul>
       {matching > limit && limit < MAX_LIMIT && (
@@ -273,7 +278,13 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   );
 }
 
-function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: Filters; app: Application | null }) {
+function JobCard({ job, tab, filters, app, google }: {
+  job: JobRow;
+  tab: Tab;
+  filters: Filters;
+  app: Application | null;
+  google: GoogleQuota | null;
+}) {
   const autoSkipped = job.decision === "skip";
   const allFlags = !autoSkipped && job.reason ? job.reason.split(", ") : [];
   const flags = allFlags.filter((f) => !f.startsWith("exp cap"));
@@ -326,6 +337,8 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
           )}
         </div>}
       </div>
+
+      {job.company === "Google" && google && <GoogleChip quota={google} />}
 
       {applied && job.closed_at && (
         <div className="mt-2 text-xs">
@@ -468,6 +481,26 @@ function DueBanner({ due }: { due: Due[] }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+// Google: at most 3 applications in 30 days, counted from your Applied tab
+function GoogleChip({ quota }: { quota: GoogleQuota }) {
+  const full = quota.used >= GOOGLE_LIMIT;
+  return (
+    <p className="mt-2 text-xs">
+      <span
+        title="Google accepts at most 3 applications per 30 days. Counted from your Applied tab (applications with a date)."
+        className={`rounded-full px-2 py-0.5 font-medium ${
+          full
+            ? "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300"
+            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+        }`}
+      >
+        {quota.used} of {GOOGLE_LIMIT} Google applications used in the last 30 days
+        {full && quota.nextFree && ` · next slot ${day(quota.nextFree)}`}
+      </span>
+    </p>
   );
 }
 
