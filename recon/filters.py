@@ -15,7 +15,7 @@ ENG = re.compile(r"engineer|developer|\bswe\b|\bsde\b|\bsre\b", re.I)
 STUDENT = re.compile(r"\b(interns?|internships?|co-?ops?)\b", re.I)
 # ...seniority and non-engineering titles
 EXCLUDE = re.compile(
-    r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|distinguished|"
+    r"\b(senior|sr\.?|staff|principal|lead|manager|manger|director|head of|architect|distinguished|"   # "Manger": Deloitte's typo
     r"vice president|vp|"   # bank titles: a VP is mid-career (Goldman Sachs, BNY)
     r"technical leadership|engineer leadership|"   # Meta's senior track ("Leadership Development Program" stays)
     r"iii|iv|phd|high school|apprentice|"

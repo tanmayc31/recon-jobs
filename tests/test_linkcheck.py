@@ -290,3 +290,24 @@ def test_bytedance_open_and_gone(monkeypatch):
         job("bytedance:jobs:7594626946647492917", "bytedance", "https://lifeattiktok.com/search/7594626946647492917"),
     ], httpx.MockTransport(h)))}
     assert got == {"bytedance:jobs:1000000000000000001": False, "bytedance:jobs:7594626946647492917": True}
+
+
+def test_avature_open_gone_and_challenged(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a gone Bloomberg job redirects to /careers/Error (403); Delta answers a WAF challenge
+        if req.url.host == "delta.avature.net":
+            return httpx.Response(202, headers={"x-amzn-waf-action": "challenge"})
+        if req.url.path.endswith("/1"):
+            return httpx.Response(302, headers={"location": "https://bloomberg.avature.net/careers/Error"})
+        if req.url.path.endswith("/Error"):
+            return httpx.Response(403)
+        return httpx.Response(200, text="<h3>Senior Software Engineer</h3>")
+    base = "https://bloomberg.avature.net/careers/JobDetail/"
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("avature:bloomberg.avature.net:1", "avature", base + "x/1"),
+        job("avature:bloomberg.avature.net:20217", "avature", base + "Senior-Software-Engineer/20217"),
+        job("avature:delta.avature.net:5", "avature", "https://delta.avature.net/careers/JobDetail/x/5"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"avature:bloomberg.avature.net:1": False, "avature:bloomberg.avature.net:20217": True,
+                   "avature:delta.avature.net:5": None}

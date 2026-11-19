@@ -40,7 +40,8 @@ def test_drops_senior_students_non_eng():
               "Software Engineer in Test 5 - Android Player",
               "Software Development Engineer in Test 5, TV & Web Player - Developer Experience & Release Quality",
               "Software Engineer, Container Infrastructure (Technical Leadership)",
-              "Software Engineer Leadership, Machine Learning RecSys"]:
+              "Software Engineer Leadership, Machine Learning RecSys",
+              "Cyber - Manger: Forward Deployed Engineering"]:
         assert not is_match(job(t)), t
 
 

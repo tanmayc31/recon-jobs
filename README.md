@@ -137,6 +137,13 @@ job. The open check reads the job's page (an empty title when it's gone). Job li
 for companies whose whole board Recon reads itself (main.COMPLETE): lists retitle jobs ("New Grad
 2027: ..." for "... - 2027 Start (PhD)").
 
+## Avature
+recon/sources/avature.py reads Avature career sites (Deloitte, Bloomberg) through their public job
+search (keywords "software engineer" and "developer", paged the way the site pages) and each new
+match's job page; companies.csv slug is the careers path, e.g. apply.deloitte.com/en_US/careers.
+"Multiple Locations" cards get their locations from the job's page. Sites behind an AWS WAF
+challenge (Delta, and IBM's job pages) aren't scanned: Recon doesn't work around a challenge.
+
 ## Jobright alert emails (off)
 Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
 reads, so the emails add nothing. Without the settings below the source does nothing.

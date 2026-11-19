@@ -89,6 +89,13 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       if (r.status === 404 || new URL(r.url).pathname.startsWith("/jobs/position-not-available")) return "gone";
       return r.status === 200 && new URL(r.url).pathname.includes(id) ? "open" : "unknown";
     }
+    if (source === "avature") {
+      // the job's page; a gone job redirects to the site's Error page (403). A challenge: can't tell
+      const r = await get(job.url);
+      if (r.headers.get("x-amzn-waf-action")) return "unknown";
+      if (r.status === 403 || r.status === 404 || new URL(r.url).pathname.includes("/Error")) return "gone";
+      return r.status === 200 ? "open" : "unknown";
+    }
     if (source === "bytedance") {
       // the job's page (lifeattiktok.com / joinbytedance.com) has its title in <title>; empty when gone
       const r = await get(job.url);
