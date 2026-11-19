@@ -13,13 +13,13 @@ from recon import eligibility
 from recon.env import load_env
 from recon.filters import classify
 from recon.sources import (amazon, apple, ashby, avature, bytedance, eightfold, gmail, google, greenhouse, icims, lever,
-                           listings, meta, oracle, smartrecruiters, workday)
+                           listings, meta, oracle, smartrecruiters, successfactors, workday)
 from recon.store import MISSES_TO_CLOSE, Store, fresh, now
 
 SOURCES = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "workday": workday, "amazon": amazon,
            "listings": listings, "gmail": gmail, "eightfold": eightfold, "oracle": oracle, "meta": meta, "google": google,
            "smartrecruiters": smartrecruiters, "apple": apple, "icims": icims,
-           "bytedance": bytedance, "avature": avature}
+           "bytedance": bytedance, "avature": avature, "successfactors": successfactors}
 COMPANIES = Path(__file__).parent.parent / "config" / "companies.csv"
 REFERRALS = Path(__file__).parent.parent / "config" / "referrals.csv"   # private, gitignored
 HEADERS = {"User-Agent": "recon-jobs/0.2"}
@@ -31,8 +31,9 @@ DEADLINE = 8 * 60
 COMPANY_TIMEOUT = 2 * 60
 LIST_TIMEOUT = 6 * 60   # a job list resolves every new row's link; the first run has hundreds
 # sources that read a company's whole board: job lists add nothing for these companies
-COMPLETE = {"greenhouse", "lever", "ashby", "google", "meta", "apple", "bytedance", "oracle", "smartrecruiters", "icims"}
-SLOW = {"listings", "gmail", "eightfold", "oracle", "meta", "google", "apple", "avature"}   # LIST_TIMEOUT: Eightfold pages 10 jobs at a time,
+COMPLETE = {"greenhouse", "lever", "ashby", "google", "meta", "apple", "bytedance", "oracle", "smartrecruiters", "icims",
+            "successfactors"}
+SLOW = {"listings", "gmail", "eightfold", "oracle", "meta", "google", "apple", "avature", "successfactors"}   # LIST_TIMEOUT: Eightfold pages 10 jobs at a time,
                                                     # Oracle reads every US posting (Safeway ~8,600),
                                                     # Meta's first run opens ~100 job pages,
                                                     # Google and Apple page 20 jobs at a time (~80-90 pages)

@@ -20,12 +20,13 @@ import httpx
 
 from recon.env import load_env
 from recon.main import HEADERS, quiet
-from recon.sources import apple, ashby, avature, bytedance, eightfold, google, icims, listings, meta, oracle, smartrecruiters
+from recon.sources import (apple, ashby, avature, bytedance, eightfold, google, icims, listings, meta, oracle, smartrecruiters,
+                           successfactors)
 from recon.store import Store
 
 DELAY = 0.3
 PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2, "list": 3, "eightfold": 2, "oracle": 2, "meta": 2, "google": 2,
-            "smartrecruiters": 3, "apple": 2, "icims": 3, "bytedance": 2, "avature": 2}   # per site, polite
+            "smartrecruiters": 3, "apple": 2, "icims": 3, "bytedance": 2, "avature": 2, "successfactors": 2}   # per site, polite
 SAMPLE = {"workday": 20, "greenhouse": 5, "lever": 5, "ashby": 5, "amazon": 5}
 COLS = ["job_id", "source", "url", "source_ids", "company", "title"]
 WORKDAY = [  # public job URL -> parts of the detail API URL
@@ -110,6 +111,11 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
             return await meta.details(client, ids(job)[0]) is not None
         except meta.Blocked:
             return None   # a login or security check: can't tell, and don't work around it
+    if source == "successfactors":   # the job's page: a gone job sends you to /errorpage/
+        try:
+            return await successfactors.details(client, job["url"]) is not None
+        except successfactors.Blocked:
+            return None
     if source == "avature":   # the job's page: a gone job sends you to the site's Error page
         try:
             return await avature.details(client, job["url"]) is not None

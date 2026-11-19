@@ -311,3 +311,20 @@ def test_avature_open_gone_and_challenged(monkeypatch):
     ], httpx.MockTransport(h)))}
     assert got == {"avature:bloomberg.avature.net:1": False, "avature:bloomberg.avature.net:20217": True,
                    "avature:delta.avature.net:5": None}
+
+
+def test_successfactors_open_and_gone(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a gone EY job redirects to /errorpage/?errortype=Exception
+        if req.url.path.startswith("/errorpage"):
+            return httpx.Response(200, text="Error")
+        if "/1000000001/" in req.url.path:
+            return httpx.Response(302, headers={"location": "https://careers.ey.com/errorpage/?errortype=Exception"})
+        return httpx.Response(200, text='<span class="jobdescription"><p>x</p></span> </div>')
+    base = "https://careers.ey.com/ey/job/x/"
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("successfactors:careers.ey.com:1000000001", "successfactors", base + "1000000001/"),
+        job("successfactors:careers.ey.com:1450048533", "successfactors", base + "1450048533/"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"successfactors:careers.ey.com:1000000001": False, "successfactors:careers.ey.com:1450048533": True}

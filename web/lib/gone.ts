@@ -89,6 +89,12 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       if (r.status === 404 || new URL(r.url).pathname.startsWith("/jobs/position-not-available")) return "gone";
       return r.status === 200 && new URL(r.url).pathname.includes(id) ? "open" : "unknown";
     }
+    if (source === "successfactors") {
+      // the job's page; a gone job redirects to /errorpage/
+      const r = await get(job.url);
+      if (r.status === 404 || r.status === 410 || new URL(r.url).pathname.includes("errorpage")) return "gone";
+      return r.status === 200 ? "open" : "unknown";
+    }
     if (source === "avature") {
       // the job's page; a gone job redirects to the site's Error page (403). A challenge: can't tell
       const r = await get(job.url);
