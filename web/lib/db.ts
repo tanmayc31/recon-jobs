@@ -84,8 +84,8 @@ export const RATINGS = [1, -1] as const; // 👍, 👎
 export type Rating = (typeof RATINGS)[number];
 
 
-// Best bets: open, entry level or SWE II with at most 2 years required, an H-1B sponsor, fit 70+
-const MAX_BEST_YEARS = 2;
+// Best bets: open, entry level or SWE II with at most MAX_BEST_YEARS required, an H-1B sponsor, fit 70+
+const MAX_BEST_YEARS = 3; // about your years of experience: 3-year roles belong here
 const MIN_BEST_FIT = 70;
 
 function tabWhere(sql: postgres.Sql, tab: Tab) {

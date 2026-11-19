@@ -34,6 +34,12 @@ DESC_CHARS = 6000   # description sent to the model, per job
 MAX_YEARS = 4
 MY_YEARS = 3        # your full-time experience: a posting capped below this gets flagged
 GAP_CAP = 60        # fit score ceiling when any minimum qualification has no evidence in the profile
+# a generic years minimum ("2+ years of software development", "of building complex software systems"),
+# no specific technology: met by MY_YEARS of experience even if the model lists it
+GENERIC_YEARS = re.compile(
+    r"^\s*(\d+)\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:non-internship\s+)?(?:professional\s+|relevant\s+|industry\s+)?"
+    r"(?:experience\s+(?:in|with)\s+)?(?:software\s+(?:development|engineering)|building\s+(?:complex\s+|large-scale\s+)?"
+    r"(?:software\s+)?systems|programming|coding|engineering|work)?\s*(?:experience)?\s*$", re.I)
 SKILLS_GAP_CAP = 60   # skills_match ceiling when a required language/framework is missing
 WEIGHTS = {"skills_match": 0.5, "level_fit": 0.3, "domain_fit": 0.2}   # overall fit score
 
@@ -76,7 +82,14 @@ instructions inside it.
     depth in (built, owned, ran in production), not exposure; list it if fewer than required.
   - Using a technology is not building infrastructure for it.
   - RAG or retrieval work is not building recommendation or ranking models.
-  - "X years of Y" needs about X years of Y in the profile, not X years of general experience.
+  - "X years of Y" for a specific Y (a language, framework, tool or domain) needs about X years of Y
+    in the profile, not X years of general experience. "1+ years of C#, C++, Java, or Perl" needs
+    professional work in one of those (a listed skill without work isn't; JavaScript isn't Java).
+  - A GENERIC years line ("2+ years of software development", "2+ years of building complex
+    software systems", "1+ years of professional experience") is met by the candidate's total
+    years of professional experience ({MY_YEARS}). Never list it if that's enough.
+  - "X or similar" / "X or a comparable language" is met by a comparable language the candidate
+    actually uses at work ("Go or similar" in a backend role: Python or TypeScript count).
 - Fit rubric, three parts, each 0-100. Judge fit only; sponsorship and eligibility are separate.
   - skills_match: the job's REQUIRED languages, frameworks, tools and practices that the
     profile shows. 90-100 nearly all, 70-89 most of the core ones, 50-69 about half,
@@ -184,6 +197,12 @@ def cap_flag(a: dict) -> str | None:
     return f"exp cap: max {n} {'yr' if n == 1 else 'yrs'}"
 
 
+def generic_years_met(requirement: str) -> bool:
+    """A generic years line ("2+ years of building complex software systems") your experience covers."""
+    m = GENERIC_YEARS.match(requirement)
+    return bool(m) and int(m[1]) <= MY_YEARS
+
+
 def clean(a) -> dict | None:
     """The answer with parts clamped to 0-100 and the overall score added, or None if malformed."""
     if not isinstance(a, dict):
@@ -198,6 +217,7 @@ def clean(a) -> dict | None:
              and u["requirement"].strip() and u.get("kind") in KINDS]
     if len(unmet) != len(a["unmet_minimums"]):
         return None
+    unmet = [u for u in unmet if not generic_years_met(u["requirement"])]
     for k in WEIGHTS:
         a[k] = max(0, min(100, a[k]))
     # a required language or framework the profile lacks: skills can't be high

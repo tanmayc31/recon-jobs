@@ -289,3 +289,25 @@ def test_a_rejudge_takes_former_best_bets_first(tmp_path):
         s.execute("UPDATE jobs SET fit_score = ?, level = ?, status = ? WHERE job_id = ?", (fit, level, status, f"greenhouse:co:{n}"))
     s.commit()
     assert [j["job_id"] for j in s.unscored(3)] == ["greenhouse:co:2", "greenhouse:co:1", "greenhouse:co:3"]
+
+
+def test_generic_years_are_met_by_your_experience_specific_ones_are_not():
+    from recon.judge import clean, generic_years_met
+    # real Amazon "Software Dev Engineer, AWS ECS": a generic line, met by ~3 years
+    assert generic_years_met("2+ years of building complex software systems experience")
+    assert generic_years_met("2+ years of non-internship professional software development experience")
+    assert not generic_years_met("5+ years of software development experience")         # more than you have
+    # real Amazon basic qualification: specific languages stay a gap
+    assert not generic_years_met("1+ years of C#, C++, Java, or Perl experience")
+    a = clean(dict(GOOD, job_id="amazon:ecs", skills_match=85, level_fit=80, domain_fit=85,
+                   unmet_minimums=[{"requirement": "2+ years of building complex software systems experience", "kind": "years"}]))
+    assert a["fit_score"] == 84 and a["unmet_minimums"] == []    # not capped
+    b = clean(dict(GOOD, job_id="amazon:sde", skills_match=85, level_fit=80, domain_fit=85,
+                   unmet_minimums=[{"requirement": "1+ years of C#, C++, Java, or Perl experience", "kind": "language_or_framework"}]))
+    assert b["fit_score"] == 60 and b["skills_match"] == 60     # still capped
+
+
+def test_instructions_cover_generic_years_and_or_similar():
+    from recon.judge import INSTRUCTIONS
+    assert "GENERIC years line" in INSTRUCTIONS and '"X or similar"' in INSTRUCTIONS
+    assert "JavaScript isn't Java" in INSTRUCTIONS

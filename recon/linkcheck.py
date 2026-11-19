@@ -221,9 +221,11 @@ async def api_open(jobs: list[dict], transport=None) -> list[tuple[dict, bool | 
         return await asyncio.gather(*(one(j) for j in jobs))
 
 
-# Best bets (web/lib/db.ts tabWhere "best") and New: the jobs you open first, checked every 3 hours
+# Best bets (web/lib/db.ts tabWhere "best"; keep MAX_BEST_YEARS in step) and New: the jobs you open
+# first, checked every 3 hours
+MAX_BEST_YEARS = 3
 BEST = ("j.decision = 'match' AND j.status IN ('new', 'backlog') AND (j.status = 'new' OR (j.level IN ('entry', 'ii')"
-        " AND COALESCE(j.min_years, j.ai_years, 0) <= 2 AND sp.filings > 0 AND j.fit_score >= 70))")
+        f" AND COALESCE(j.min_years, j.ai_years, 0) <= {MAX_BEST_YEARS} AND sp.filings > 0 AND j.fit_score >= 70))")
 
 
 async def recheck_open(transport=None, best: bool = False) -> tuple[int, int]:
