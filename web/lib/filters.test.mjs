@@ -16,7 +16,7 @@ test("defaults leave the URL empty, and the tab's default sort isn't written", (
   assert.equal(toQuery(parse(""), "best"), "");               // Best bets is the default tab
   assert.equal(toQuery(parse("", "new"), "new"), "tab=new");
   assert.equal(parse("").sort, "fit");                       // Best bets/New/Backlog: best fit first
-  assert.equal(parse("", "applied").sort, "found");
+  assert.equal(parse("", "later").sort, "found");                    // Later/Skipped: newest found first
   assert.equal(toQuery(parse("sort=fit", "backlog"), "backlog"), "tab=backlog");
 });
 
@@ -43,4 +43,15 @@ test("company sorts A→Z by default; other sorts high to low", () => {
 test("load more: limit grows in pages of 500, up to 5,000", () => {
   assert.deepEqual(["1000", "5000", null, "750", "5500", "-500", "500"].map(parseLimit),
     [1000, 5000, 500, 500, 500, 500, 500]);
+});
+
+test("search and the Applied tab's sorts", () => {
+  assert.equal(parse("q=+airbnb+", "applied").q, "airbnb");
+  assert.equal(toQuery(parse("tab=applied&q=airbnb", "applied"), "applied"), "tab=applied&q=airbnb");
+  assert.equal(parse("", "applied").sort, "applied");                 // newest application first
+  assert.equal(parse("", "applied").dir, "desc");
+  assert.equal(parse("sort=updated", "applied").sort, "updated");
+  assert.equal(parse("sort=applied", "best").sort, "fit");             // not offered outside Applied
+  assert.equal(toQuery(parse("", "applied"), "applied"), "tab=applied"); // the default isn't written
+  assert.equal(activeCount(parse("q=stripe")), 1);
 });

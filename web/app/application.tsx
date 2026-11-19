@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState, useTransition } from "react";
+import { useActionState, useEffect, useOptimistic, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { requestPrep, saveDetails, savePrep, setStage } from "./actions";
 import { appliedLabel, day, daysSince } from "@/lib/dates";
@@ -30,11 +30,24 @@ export function StageBadge({ stage }: { stage: Stage }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STAGE_COLORS[stage]}`}>{STAGE_LABELS[stage]}</span>;
 }
 
-export function ApplicationPanel({ jobId, app }: { jobId: string; app: Application | null }) {
-  const stage: Stage = app?.stage ?? "applied";
+/** ids: the card's copies (same company + title, other locations); stage and details apply to all.
+ *  The first id is the card's own job (its AI prep). */
+export function ApplicationPanel({ ids, app }: { ids: string[]; app: Application | null }) {
+  const jobId = ids[0];
   const [pending, startTransition] = useTransition();
+  // a stage change shows at once (badge, timeline); the server's answer replaces it
+  const [shown, showStage] = useOptimistic(
+    { stage: (app?.stage ?? "applied") as Stage, stageAt: app?.stage_at ?? null, events: app?.events ?? [] },
+    (s, next: { stage: Stage; at: string }) => ({ stage: next.stage, stageAt: next.at, events: [...s.events, next] }),
+  );
+  const stage = shown.stage;
+  const changeStage = (next: Stage) =>
+    startTransition(async () => {
+      showStage({ stage: next, at: new Date().toISOString() });
+      await setStage(ids, next);
+    });
   // still at Applied: no news since you applied
-  const lastChange = stage === "applied" ? (app?.applied_at ?? null) : (app?.stage_at ?? null);
+  const lastChange = stage === "applied" ? (app?.applied_at ?? null) : shown.stageAt;
   const ghostly = stage === "applied" && lastChange != null && daysSince(lastChange) >= GHOST_DAYS;
 
   return (
@@ -47,7 +60,7 @@ export function ApplicationPanel({ jobId, app }: { jobId: string; app: Applicati
           <select
             value={stage}
             disabled={pending}
-            onChange={(e) => startTransition(() => setStage(jobId, e.target.value as Stage))}
+            onChange={(e) => changeStage(e.target.value as Stage)}
             className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
           >
             {STAGES.map((s) => (
@@ -59,9 +72,9 @@ export function ApplicationPanel({ jobId, app }: { jobId: string; app: Applicati
         </label>
       </div>
 
-      {app && app.events.length > 0 && (
+      {shown.events.length > 0 && (
         <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-zinc-500" aria-label="Timeline">
-          {app.events.map((e, i) => (
+          {shown.events.map((e, i) => (
             <li key={i} className="flex items-center gap-1.5">
               {i > 0 && <span aria-hidden>→</span>}
               <span>
@@ -79,7 +92,7 @@ export function ApplicationPanel({ jobId, app }: { jobId: string; app: Applicati
           <span>No change in {daysSince(lastChange)} days. Mark as ghosted?</span>
           <button
             disabled={pending}
-            onClick={() => startTransition(() => setStage(jobId, "ghosted"))}
+            onClick={() => changeStage("ghosted")}
             className="rounded-md border border-amber-400 px-2 py-1 text-xs font-medium hover:bg-amber-100 disabled:opacity-50 dark:hover:bg-amber-900/40"
           >
             Mark as ghosted
@@ -89,7 +102,7 @@ export function ApplicationPanel({ jobId, app }: { jobId: string; app: Applicati
 
       {(stage === "assessment" || stage === "interview" || app?.prep) && <Prep jobId={jobId} app={app} stage={stage} />}
 
-      <Details jobId={jobId} app={app} />
+      <Details ids={ids} app={app} />
     </div>
   );
 }
@@ -180,7 +193,7 @@ function Prep({ jobId, app, stage }: { jobId: string; app: Application | null; s
   );
 }
 
-function Details({ jobId, app }: { jobId: string; app: Application | null }) {
+function Details({ ids, app }: { ids: string[]; app: Application | null }) {
   const [saved, save, saving] = useActionState(saveDetails, null);
   const [open, setOpen] = useState(false);
   const filled = FIELDS.filter(([k]) => app?.[k]).length + (app?.notes ? 1 : 0);
@@ -191,7 +204,7 @@ function Details({ jobId, app }: { jobId: string; app: Application | null }) {
         {app?.notes && !open && <span className="ml-2 font-normal text-zinc-500">{app.notes.slice(0, 60)}{app.notes.length > 60 ? "…" : ""}</span>}
       </summary>
       <form action={save} className="space-y-3 px-3 pb-3">
-        <input type="hidden" name="jobId" value={jobId} />
+        {ids.map((id) => <input key={id} type="hidden" name="jobId" value={id} />)}
         <label className="block">
           <span className="text-zinc-500">Notes</span>
           <textarea name="notes" defaultValue={app?.notes ?? ""} rows={3} className={INPUT} />

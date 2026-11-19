@@ -1,6 +1,6 @@
 import "server-only";
 import postgres from "postgres";
-import { type Filters, asState } from "./filters";
+import { APPLIED_SORTS, type Filters, asState } from "./filters";
 import { type Application, DETAILS, type Detail, RESPONDED, STAGES, type Stage } from "./stages";
 
 export * from "./stages";
@@ -11,10 +11,11 @@ const globalForDb = globalThis as unknown as { sql?: postgres.Sql };
 function connect() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
-  // prepare: false -> works with Supabase's pooler; small pool for serverless. A frozen serverless
-  // function's idle connections die: close them after 20 s and recycle every 5 min, so a reused one
-  // can't hang the page (the 504s: the pooler waited on a half-sent query until its 2-min timeout)
-  return postgres(url, { prepare: false, max: 5, idle_timeout: 20, max_lifetime: 5 * 60, connect_timeout: 10 });
+  // prepare: false -> works with Supabase's pooler; small pool for serverless. Idle connections close
+  // after 20 s and are recycled every 5 min (a frozen serverless function's sockets go stale).
+  // max_pipeline 1: one query at a time per connection. Pipelined queries hang behind Supabase's
+  // transaction pooler (port 6543): the 504s, a query left waiting on ClientRead until its 2-min timeout
+  return postgres(url, { prepare: false, max: 5, max_pipeline: 1, idle_timeout: 20, max_lifetime: 5 * 60, connect_timeout: 10 });
 }
 
 // The pooler ignores per-connection statement_timeout, so every query gets cancelled (on the server
@@ -75,6 +76,7 @@ export type JobRow = {
   filings: number | null; // H-1B software filings (sponsors table), null if not a known sponsor
   my_rating: Rating | null; // your 👍 / 👎
   closed_at: string | null; // gone from the company's board
+  ids: string[]; // this card's copies (same company + title, other locations) in the tab, itself first
   more: number; // Best bets: this company's jobs past the per-company limit (on its last shown card)
 };
 
@@ -107,6 +109,7 @@ const like = (text: string) => `%${text.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
 
 function filterWhere(sql: postgres.Sql, f: Filters) {
   const where = [];
+  if (f.q) where.push(sql`(j.company ILIKE ${like(f.q)} OR j.title ILIKE ${like(f.q)})`);
   if (f.roles.length) where.push(sql`j.role_type IN ${sql(f.roles)}`);
   if (f.posted) where.push(sql`j.posted_on::date >= current_date - ${f.posted}::int`);
   if (f.found) where.push(sql`j.first_seen_at::timestamptz >= now() - make_interval(days => ${f.found}::int)`);
@@ -137,22 +140,30 @@ function filterWhere(sql: postgres.Sql, f: Filters) {
 
 function orderBy(sql: postgres.Sql, f: Filters) {
   const asc = f.dir === "asc";
+  const by = (col: postgres.Fragment) => (asc ? sql`${col} ASC NULLS LAST` : sql`${col} DESC NULLS LAST`);
   const key = {
-    fit: asc ? sql`j.fit_score ASC NULLS LAST` : sql`j.fit_score DESC NULLS LAST`,
-    posted: asc ? sql`j.posted_on ASC NULLS LAST` : sql`j.posted_on DESC NULLS LAST`,
+    fit: by(sql`j.fit_score`),
+    posted: by(sql`j.posted_on`),
     found: asc ? sql`j.first_seen_at ASC` : sql`j.first_seen_at DESC`,
     company: asc ? sql`lower(j.company) ASC` : sql`lower(j.company) DESC`,
-    filings: asc ? sql`sp.filings ASC NULLS LAST` : sql`sp.filings DESC NULLS LAST`,
+    filings: by(sql`sp.filings`),
+    // Applied tab (applications a joined): undated applications last either way
+    applied: by(sql`a.applied_at::timestamptz`),
+    updated: by(sql`COALESCE(a.stage_at, a.applied_at)::timestamptz`),
   }[f.sort];
   return sql`${key}, j.first_seen_at DESC, j.job_id`;
 }
+
+// One card per company + title: the same job posted for several locations (Harvey NY and SF)
+const groupKey = (sql: postgres.Sql) => sql`j.company || chr(31) || lower(trim(j.title))`;
 
 // Best bets shows at most this many jobs per company (the best by the current sort), with a link
 // to the rest; picking companies in the filter lifts it
 export const PER_COMPANY = 3;
 
 /** The tab's jobs after filters (the first `limit`), how many match in all, and how many of those
- *  the per-company limit hides. */
+ *  the per-company limit hides. Copies of a job (same company + title) are one row: the first by
+ *  the sort, with every copy's id and location. */
 export async function listJobs(
   tab: Tab,
   f: Filters,
@@ -160,31 +171,44 @@ export async function listJobs(
   stage: Stage | null = null, // Applied tab: one stage only
 ): Promise<{ jobs: JobRow[]; matching: number; hidden: number }> {
   const sql = db();
+  const applied = tab === "applied" || APPLIED_SORTS.includes(f.sort);
   // Applied tab: one stage (no application row yet counts as "applied"), a join, not a subquery per row
   const byStage = tab === "applied" && stage ? sql`COALESCE(a.stage, 'applied') = ${stage}` : sql`TRUE`;
   const where = sql`${tabWhere(sql, tab)} AND ${filterWhere(sql, f)} AND ${byStage}`;
   const cap = tab === "best" && f.companies.length === 0 ? PER_COMPANY : 1_000_000;
-  // rank: the job's place within its company; pos: its place overall (same sort)
-  const ranked = sql`
+  const order = orderBy(sql, f);
+  const copies = sql`PARTITION BY ${groupKey(sql)}`;
+  // ord: place overall; copy_rank: place among its copies (1 = the card)
+  const base = sql`
     SELECT j.job_id, j.company, j.title, j.location, j.url, j.tier, j.posted_at, j.posted_on, j.site_updated_at,
            j.first_seen_at, j.decision, j.reason, j.min_years, j.status, j.fit_score, j.ai_skills,
            j.ai_level, j.ai_domain, j.ai_why, j.ai_missing, j.ai_resume, j.ai_max_years, j.openings,
            j.role_type, j.level, j.via, j.my_rating, j.closed_at, sp.filings,
-           ROW_NUMBER() OVER (PARTITION BY j.company ORDER BY ${orderBy(sql, f)})::int AS company_rank,
-           COUNT(*) OVER (PARTITION BY j.company)::int AS company_total,
-           ROW_NUMBER() OVER (ORDER BY ${orderBy(sql, f)}) AS pos
+           ROW_NUMBER() OVER (ORDER BY ${order}) AS ord,
+           ROW_NUMBER() OVER (${copies} ORDER BY ${order}) AS copy_rank,
+           array_agg(j.job_id) OVER (${copies}) AS ids,
+           array_agg(j.location) OVER (${copies}) AS locations
     FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company
-         ${tab === "applied" ? sql`LEFT JOIN applications a ON a.job_id = j.job_id` : sql``}
+         ${applied ? sql`LEFT JOIN applications a ON a.job_id = j.job_id` : sql``}
     WHERE ${where}`;
-  const [jobs, [count]] = await Promise.all([
-    timed(sql<JobRow[]>`
+  // company_rank: the card's place within its company (Best bets' per-company limit)
+  const ranked = sql`
+    SELECT b.*, ROW_NUMBER() OVER (PARTITION BY b.company ORDER BY b.ord)::int AS company_rank,
+           COUNT(*) OVER (PARTITION BY b.company)::int AS company_total
+    FROM (${base}) b WHERE b.copy_rank = 1`;
+  const [rows, [count]] = await Promise.all([
+    timed(sql<(JobRow & { locations: (string | null)[] })[]>`
       SELECT *, CASE WHEN company_rank = ${cap} THEN company_total - ${cap} ELSE 0 END::int AS more
-      FROM (${ranked}) t WHERE company_rank <= ${cap} ORDER BY pos LIMIT ${limit}`),
+      FROM (${ranked}) t WHERE company_rank <= ${cap} ORDER BY ord LIMIT ${limit}`),
     timed(sql<{ n: number; hidden: number }[]>`
       SELECT COUNT(*) FILTER (WHERE company_rank <= ${cap})::int AS n,
              COUNT(*) FILTER (WHERE company_rank > ${cap})::int AS hidden
       FROM (${ranked}) t`),
   ]);
+  const jobs = rows.map((r) => {
+    const all = [...new Set(r.locations.flatMap((l) => (l ? l.split("; ") : [])))];
+    return { ...r, location: all.join("; ") || r.location };
+  });
   return { jobs, matching: count.n, hidden: count.hidden };
 }
 
@@ -195,67 +219,95 @@ export async function listCompanies(): Promise<string[]> {
   return rows.map((r) => r.company);
 }
 
+/** Cards per tab (copies of a job count once, like the list), in one pass over the table. */
 export async function tabCounts(): Promise<Record<Tab, number>> {
   const sql = db();
   // same conditions as the tabs themselves
-  const counts = TABS.map((t) => sql`COUNT(*) FILTER (WHERE ${tabWhere(sql, t)})::int AS ${sql(t)}`);
+  const counts = TABS.map((t) => sql`COUNT(DISTINCT ${groupKey(sql)}) FILTER (WHERE ${tabWhere(sql, t)})::int AS ${sql(t)}`);
   const [row] = await timed(sql`
     SELECT ${counts.flatMap((c, i) => (i ? [sql`, `, c] : [c])).reduce((a, b) => sql`${a}${b}`)}
     FROM jobs j LEFT JOIN sponsors sp ON sp.company = j.company`);
   return row as Record<Tab, number>;
 }
 
-export async function updateStatus(jobId: string, status: Status) {
-  await timed(db()`UPDATE jobs SET status = ${status} WHERE job_id = ${jobId}`);
-  if (status === "applied") await startApplication(jobId);
+/** Moves a card: every copy of it in that tab (ids). Applied: on appliedOn (YYYY-MM-DD), or now. */
+export async function updateStatus(ids: string[], status: Status, appliedOn: string | null = null) {
+  await timed(db()`UPDATE jobs SET status = ${status} WHERE job_id IN ${db()(ids)}`);
+  if (status === "applied") await startApplication(ids, appliedOn);
 }
 
 // --- Applications: stages, dates and your details for Applied jobs (tables `applications` and
 // `application_events`, recon/store.py). jobs.status still drives the tabs.
 
 const eventId = () => crypto.randomUUID().replace(/-/g, "");
+// a picked day is stored at noon UTC: the same calendar day in every US time zone
+const onDay = (day: string) => `${day}T12:00:00+00:00`;
 
-/** Marked Applied (the popup's "Yes, applied" or the Applied button): today's date, unless the
- *  application already has one (applied again after moving it away). */
-async function startApplication(jobId: string) {
+/** Marked Applied (the popup or the Applied button): the day you picked, else now. Without a picked
+ *  day an application that already has a date keeps it (applied again after moving it away). */
+async function startApplication(ids: string[], appliedOn: string | null) {
   const sql = db();
-  const at = now();
-  const [row] = await timed(sql<{ applied_at: string | null }[]>`
-    INSERT INTO applications (job_id, stage, applied_at, stage_at) VALUES (${jobId}, 'applied', ${at}, ${at})
-    ON CONFLICT (job_id) DO UPDATE SET applied_at = COALESCE(applications.applied_at, EXCLUDED.applied_at)
-    RETURNING applied_at`);
-  if (row.applied_at === at) {
-    await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`);
+  const at = appliedOn ? onDay(appliedOn) : now();
+  for (const jobId of ids) {
+    const [row] = await timed(sql<{ applied_at: string | null }[]>`
+      INSERT INTO applications (job_id, stage, applied_at, stage_at) VALUES (${jobId}, 'applied', ${at}, ${at})
+      ON CONFLICT (job_id) DO UPDATE SET applied_at = ${appliedOn ? sql`EXCLUDED.applied_at` : sql`COALESCE(applications.applied_at, EXCLUDED.applied_at)`},
+        stage_at = COALESCE(applications.stage_at, EXCLUDED.stage_at)
+      RETURNING applied_at`);
+    if (row.applied_at === at) await setFirstApplied(jobId, at);
   }
 }
 
-export async function updateStage(jobId: string, stage: Stage) {
+/** The timeline starts on the applied day: move its first "applied" event, or add one. */
+async function setFirstApplied(jobId: string, at: string) {
   const sql = db();
-  const at = now();
-  await timed(sql`INSERT INTO applications (job_id, stage, stage_at) VALUES (${jobId}, ${stage}, ${at})
-            ON CONFLICT (job_id) DO UPDATE SET stage = EXCLUDED.stage, stage_at = EXCLUDED.stage_at`);
-  await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, ${stage}, ${at})`);
+  const [first] = await timed(sql<{ id: string }[]>`SELECT id FROM application_events
+    WHERE job_id = ${jobId} AND stage = 'applied' ORDER BY at LIMIT 1`);
+  if (first) await timed(sql`UPDATE application_events SET at = ${at} WHERE id = ${first.id}`);
+  else await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`);
 }
 
-/** Your details; empty fields are cleared. appliedOn (YYYY-MM-DD) sets the applied date, e.g. for
- *  jobs applied before Recon tracked dates. */
-export async function updateDetails(jobId: string, details: Record<Detail, string | null>, appliedOn: string | null) {
+/** Sets the applied day (YYYY-MM-DD) on every copy, e.g. for jobs applied before Recon tracked dates. */
+export async function setAppliedOn(ids: string[], appliedOn: string) {
   const sql = db();
-  await timed(sql`INSERT INTO applications (job_id) VALUES (${jobId}) ON CONFLICT (job_id) DO NOTHING`);
-  await timed(sql`UPDATE applications SET ${sql(details, ...DETAILS)} WHERE job_id = ${jobId}`);
-  if (appliedOn) {
-    // noon UTC: the same calendar day in every US time zone
-    const at = `${appliedOn}T12:00:00+00:00`;
-    const changed = await timed(sql`UPDATE applications SET applied_at = ${at} WHERE job_id = ${jobId}
-              AND COALESCE(substr(applied_at, 1, 10), '') <> ${appliedOn} RETURNING job_id`);
-    if (changed.length) {
-      // the timeline starts on the corrected day: move its first "applied", or add one
-      const [first] = await timed(sql<{ id: string }[]>`SELECT id FROM application_events
-        WHERE job_id = ${jobId} AND stage = 'applied' ORDER BY at LIMIT 1`);
-      if (first) await timed(sql`UPDATE application_events SET at = ${at} WHERE id = ${first.id}`);
-      else await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`);
-    }
+  const at = onDay(appliedOn);
+  for (const jobId of ids) {
+    const changed = await timed(sql`
+      INSERT INTO applications (job_id, stage, applied_at) VALUES (${jobId}, 'applied', ${at})
+      ON CONFLICT (job_id) DO UPDATE SET applied_at = EXCLUDED.applied_at
+      WHERE COALESCE(substr(applications.applied_at, 1, 10), '') <> ${appliedOn} RETURNING job_id`);
+    if (changed.length) await setFirstApplied(jobId, at);
   }
+}
+
+export async function updateStage(ids: string[], stage: Stage) {
+  const sql = db();
+  const at = now();
+  for (const jobId of ids) {
+    await timed(sql`INSERT INTO applications (job_id, stage, stage_at) VALUES (${jobId}, ${stage}, ${at})
+              ON CONFLICT (job_id) DO UPDATE SET stage = EXCLUDED.stage, stage_at = EXCLUDED.stage_at`);
+    await timed(sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, ${stage}, ${at})`);
+  }
+}
+
+/** Your details on every copy; empty fields are cleared. */
+export async function updateDetails(ids: string[], details: Record<Detail, string | null>, appliedOn: string | null) {
+  const sql = db();
+  for (const jobId of ids) {
+    await timed(sql`INSERT INTO applications (job_id) VALUES (${jobId}) ON CONFLICT (job_id) DO NOTHING`);
+    await timed(sql`UPDATE applications SET ${sql(details, ...DETAILS)} WHERE job_id = ${jobId}`);
+  }
+  if (appliedOn) await setAppliedOn(ids, appliedOn);
+}
+
+/** Applied jobs without a date (applied before Recon tracked dates), one row per card. */
+export async function undatedApplications(): Promise<{ ids: string[]; company: string; title: string }[]> {
+  const sql = db();
+  return timed(sql<{ ids: string[]; company: string; title: string }[]>`
+    SELECT array_agg(j.job_id) AS ids, min(j.company) AS company, min(j.title) AS title
+    FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
+    WHERE j.status = 'applied' AND a.applied_at IS NULL
+    GROUP BY ${groupKey(sql)} ORDER BY lower(min(j.company)), lower(min(j.title))`);
 }
 
 /** "AI prep": recon/prep.py writes it (GitHub Actions, the judge's Gemini key and profile). */
@@ -283,10 +335,11 @@ export async function applicationsFor(jobIds: string[]): Promise<Map<string, App
   return out;
 }
 
-/** Applied tab: jobs per stage (no application row yet: "applied"). */
+/** Applied tab: cards per stage (no application row yet: "applied"). */
 export async function stageCounts(): Promise<Record<Stage, number>> {
-  const rows = await timed(db()<{ stage: Stage; n: number }[]>`
-    SELECT COALESCE(a.stage, 'applied') AS stage, COUNT(*)::int AS n
+  const sql = db();
+  const rows = await timed(sql<{ stage: Stage; n: number }[]>`
+    SELECT COALESCE(a.stage, 'applied') AS stage, COUNT(DISTINCT ${groupKey(sql)})::int AS n
     FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
     WHERE j.status = 'applied' GROUP BY 1`);
   const counts = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
@@ -294,13 +347,14 @@ export async function stageCounts(): Promise<Record<Stage, number>> {
   return counts;
 }
 
-/** Applications this week (since Monday, Eastern), in all, and how many got an answer. */
+/** Applications (cards) this week (since Monday, Eastern), in all, and how many got an answer. */
 export async function applicationStats(): Promise<{ week: number; total: number; responded: number }> {
-  const [row] = await timed(db()<{ week: number; total: number; responded: number }[]>`
-    SELECT COUNT(*) FILTER (WHERE a.applied_at::timestamptz >=
+  const sql = db();
+  const [row] = await timed(sql<{ week: number; total: number; responded: number }[]>`
+    SELECT COUNT(DISTINCT ${groupKey(sql)}) FILTER (WHERE a.applied_at::timestamptz >=
              date_trunc('week', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')::int AS week,
-           COUNT(*)::int AS total,
-           COUNT(*) FILTER (WHERE a.stage IN ${db()(RESPONDED)})::int AS responded
+           COUNT(DISTINCT ${groupKey(sql)})::int AS total,
+           COUNT(DISTINCT ${groupKey(sql)}) FILTER (WHERE a.stage IN ${sql(RESPONDED)})::int AS responded
     FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
     WHERE j.status = 'applied'`);
   return row;

@@ -18,6 +18,7 @@ import {
   keepAdded,
   queueAdded,
   queuePrep,
+  setAppliedOn,
   updateDetails,
   updatePrep,
   updateRating,
@@ -32,37 +33,58 @@ async function requireSession() {
   if (!isValidSession((await cookies()).get(COOKIE)?.value)) redirect("/login");
 }
 
-export async function setStatus(formData: FormData) {
-  await requireSession();
-  const jobId = String(formData.get("jobId") ?? "");
-  const status = String(formData.get("status") ?? "") as Status;
-  if (!jobId || !STATUSES.includes(status)) throw new Error("Bad request");
-  await updateStatus(jobId, status);
-  revalidatePath("/");
-}
-
-// "Did you apply?" popup: Yes -> Applied (today's date), Not interested -> Skipped
-export async function answerApplied(jobId: string, answer: "applied" | "skipped") {
-  await requireSession();
-  if (!jobId || !["applied", "skipped"].includes(answer)) throw new Error("Bad request");
-  await updateStatus(jobId, answer);
-  revalidatePath("/");
-}
-
-export async function setStage(jobId: string, stage: Stage) {
-  await requireSession();
-  if (!jobId || !STAGES.includes(stage)) throw new Error("Bad request");
-  await updateStage(jobId, stage);
-  revalidatePath("/");
+// a card's copies (same company + title, other locations): every action applies to all of them
+function jobIds(value: unknown): string[] {
+  const ids = (Array.isArray(value) ? value : [value]).map(String).filter(Boolean).slice(0, 50);
+  if (!ids.length) throw new Error("Bad request");
+  return ids;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_FIELDS: Detail[] = ["deadline", "follow_up"];
+const day = (v: unknown) => (typeof v === "string" && DATE.test(v) ? v : null);
+
+// The Applied button sets today's date (lib/db.ts startApplication)
+export async function setStatus(formData: FormData) {
+  await requireSession();
+  const status = String(formData.get("status") ?? "") as Status;
+  if (!STATUSES.includes(status)) throw new Error("Bad request");
+  await updateStatus(jobIds(formData.getAll("jobId")), status);
+  revalidatePath("/");
+}
+
+// "Did you apply?" popup: Applied today / yesterday / on a picked day (YYYY-MM-DD, your calendar),
+// or Not interested -> Skipped
+export async function answerApplied(ids: string[], answer: "applied" | "skipped", appliedOn: string | null = null) {
+  await requireSession();
+  if (!["applied", "skipped"].includes(answer)) throw new Error("Bad request");
+  await updateStatus(jobIds(ids), answer, answer === "applied" ? day(appliedOn) : null);
+  revalidatePath("/");
+}
+
+export async function setStage(ids: string[], stage: Stage) {
+  await requireSession();
+  if (!STAGES.includes(stage)) throw new Error("Bad request");
+  await updateStage(jobIds(ids), stage);
+  revalidatePath("/");
+}
+
+// "Set dates": the applied day for jobs applied before Recon tracked dates (fields d:<ids, comma-joined>)
+export async function saveAppliedDates(_prev: string | null, formData: FormData): Promise<string> {
+  await requireSession();
+  let n = 0;
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("d:") || !day(value)) continue;
+    await setAppliedOn(jobIds(key.slice(2).split(",")), day(value)!);
+    n++;
+  }
+  revalidatePath("/");
+  return n ? `Saved ${n} ${n === 1 ? "date" : "dates"}` : "Pick a date first";
+}
 
 export async function saveDetails(_prev: string | null, formData: FormData): Promise<string> {
   await requireSession();
-  const jobId = String(formData.get("jobId") ?? "");
-  if (!jobId) throw new Error("Bad request");
+  const ids = jobIds(formData.getAll("jobId"));
   const details = Object.fromEntries(
     DETAILS.map((d) => {
       const v = String(formData.get(d) ?? "").trim().slice(0, d === "notes" ? 5000 : 500);
@@ -70,7 +92,7 @@ export async function saveDetails(_prev: string | null, formData: FormData): Pro
     }),
   ) as Record<Detail, string | null>;
   const appliedOn = String(formData.get("appliedOn") ?? "");
-  await updateDetails(jobId, details, DATE.test(appliedOn) ? appliedOn : null);
+  await updateDetails(ids, details, DATE.test(appliedOn) ? appliedOn : null);
   revalidatePath("/");
   return "Saved";
 }

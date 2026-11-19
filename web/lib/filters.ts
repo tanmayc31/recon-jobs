@@ -30,10 +30,19 @@ export const SORTS = { // short: the sort menu shares a row with "Filters" on ph
   found: "Found",
   company: "Company",
   filings: "H-1B filings",
+  applied: "Applied date", // Applied tab only (APPLIED_SORTS)
+  updated: "Last update",
 } as const;
 export type Sort = keyof typeof SORTS;
+export const APPLIED_SORTS: Sort[] = ["applied", "updated"];
+
+/** The sorts a tab offers: "Applied date" and "Last update" only where there are applications. */
+export function sortsFor(tab: string): Sort[] {
+  return (Object.keys(SORTS) as Sort[]).filter((s) => tab === "applied" || !APPLIED_SORTS.includes(s));
+}
 
 export type Filters = {
+  q: string; // search: company or title
   roles: Role[];
   levels: Level[];
   posted: number | null; // days
@@ -57,8 +66,10 @@ export type Filters = {
 
 type Params = { get(name: string): string | null; getAll(name: string): string[] };
 
-/** Best bets, New and Backlog sort by fit (best first); the other tabs by when Recon found the job. */
+/** Best bets, New and Backlog sort by fit (best first); Applied by when you applied (newest first);
+ *  the other tabs by when Recon found the job. */
 export function defaultSort(tab: string): Sort {
+  if (tab === "applied") return "applied";
   return tab === "best" || tab === "new" || tab === "backlog" ? "fit" : "found";
 }
 
@@ -82,8 +93,9 @@ const oneOf = <T>(value: string | null, allowed: readonly T[]): T | null =>
 
 export function parseFilters(p: Params, tab: string): Filters {
   const fit = Number(p.get("minfit"));
-  const sort = oneOf(p.get("sort"), Object.keys(SORTS) as Sort[]) ?? defaultSort(tab);
+  const sort = oneOf(p.get("sort"), sortsFor(tab)) ?? defaultSort(tab);
   return {
+    q: (p.get("q") ?? "").trim().slice(0, 80),
     roles: p.getAll("role").filter((r): r is Role => r in ROLES),
     levels: p.getAll("level").filter((l): l is Level => l in LEVELS),
     posted: oneOf(p.get("posted"), DAYS),
@@ -110,6 +122,7 @@ export function parseFilters(p: Params, tab: string): Filters {
 export function toQuery(f: Filters, tab: string): string {
   const q = new URLSearchParams();
   if (tab !== DEFAULT_TAB) q.set("tab", tab);
+  if (f.q) q.set("q", f.q);
   f.roles.forEach((r) => q.append("role", r));
   f.levels.forEach((l) => q.append("level", l));
   if (f.posted) q.set("posted", String(f.posted));
@@ -135,6 +148,7 @@ export function toQuery(f: Filters, tab: string): string {
 /** How many filters are on (for the panel's summary line). Sort doesn't count. */
 export function activeCount(f: Filters): number {
   return [
+    f.q,
     f.roles.length > 0,
     f.levels.length > 0,
     f.posted,

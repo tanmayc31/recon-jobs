@@ -11,6 +11,9 @@ Recon finds and ranks. It never applies to jobs.
   "Authorized to work in the US" alone is NOT a blocker.
 - Never commit secrets, data/, .venv/, or config/referrals.csv (private contacts).
 - One step at a time. Explain changes briefly in plain English.
+- Act as the product designer and QA, not just the coder. For every feature, walk through the real
+  user flow end to end, pick sensible defaults (sorting, dates, empty states), check every tab it
+  touches, and fix small UX gaps without being asked. List what you noticed and fixed in each summary.
 
 ## Layout
 recon/sources/  one adapter per ATS

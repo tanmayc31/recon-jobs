@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState, useSyncExternalStore, useTransition } from "react";
-import { DAYS, LEVELS, MAX_YEARS, MIN_FILINGS, ROLES, SORTS, TIERS, type Filters, parseFilters, toQuery } from "@/lib/filters";
+import { DAYS, LEVELS, MAX_YEARS, MIN_FILINGS, ROLES, SORTS, TIERS, type Filters, parseFilters, sortsFor, toQuery } from "@/lib/filters";
 
 type Props = { tab: string; filters: Filters; companies: string[]; active: number };
 
@@ -30,7 +30,8 @@ function storeOpen(open: boolean) {
 
 export function FilterPanel(props: Props) {
   const open = useSyncExternalStore(subscribe, readOpen, () => false); // server: closed
-  return <FilterForm key={toQuery(props.filters, props.tab)} {...props} open={open} setOpen={storeOpen} />;
+  // search (q) isn't in the key: the search box updates it without remounting this form
+  return <FilterForm key={toQuery({ ...props.filters, q: "" }, props.tab)} {...props} open={open} setOpen={storeOpen} />;
 }
 
 const DAY_LABELS: Record<number, string> = { 1: "Last 24h", 3: "Last 3 days", 7: "Last 7 days", 30: "Last 30 days" };
@@ -70,6 +71,7 @@ function FilterForm({ tab, filters, companies, active, open, setOpen }: Props & 
       }}
     >
       <input type="hidden" name="tab" value={tab} />
+      <input type="hidden" name="q" value={filters.q} />
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
         <button
           type="button"
@@ -86,8 +88,8 @@ function FilterForm({ tab, filters, companies, active, open, setOpen }: Props & 
         </button>
         <label className="sr-only" htmlFor="sort">Sort by</label>
         <select id="sort" name="sort" defaultValue={filters.sort} className={SELECT}>
-          {Object.entries(SORTS).map(([k, label]) => (
-            <option key={k} value={k}>{label}</option>
+          {sortsFor(tab).map((k) => (
+            <option key={k} value={k}>{SORTS[k]}</option>
           ))}
         </select>
         <label className="sr-only" htmlFor="dir">Order</label>

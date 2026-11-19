@@ -5,6 +5,9 @@ import { ApplicationPanel } from "./application";
 import { ApplyLink, ApplyPrompt } from "./apply-prompt";
 import { FilterPanel } from "./filters";
 import { GoneButton } from "./gone-button";
+import { Menu } from "./menu";
+import { SearchBox } from "./search";
+import { SetDates } from "./set-dates";
 import { StatusButton } from "./status-button";
 import { ago, posted, updated } from "@/lib/dates";
 import {
@@ -24,6 +27,7 @@ import {
   recentAdded,
   stageCounts,
   tabCounts,
+  undatedApplications,
 } from "@/lib/db";
 import {
   DEFAULT_TAB,
@@ -33,7 +37,10 @@ import {
   ROLES,
   type Role,
   activeCount,
+  defaultDir,
+  defaultSort,
   parseFilters,
+  sortsFor,
   parseLimit,
   toQuery,
 } from "@/lib/filters";
@@ -71,6 +78,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
     recentAdded(),
     tab === "applied" ? stageCounts() : null,
     tab === "applied" ? applicationStats() : null,
+    tab === "applied" ? undatedApplications() : null,
   ]);
   const failed = new Set<string>();
   const value = <T,>(r: PromiseSettledResult<T>, section: string, fallback: T): T => {
@@ -85,13 +93,20 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const added = value(results[3], "added", []);
   const stages = value(results[4], "stages", null);
   const stats = value(results[5], "stats", null);
+  const undated = value(results[6], "undated", null);
   const apps = await applicationsFor(jobs.filter((j) => j.status === "applied").map((j) => j.job_id)).catch((e) => {
     console.error("dashboard: applications failed:", e instanceof Error ? e.message : e);
     failed.add("applications");
     return new Map<string, Application>();
   });
-  const active = activeCount(filters);
+  const active = activeCount(filters); // search included (Reset clears it too)
   const base = toQuery(filters, tab); // this tab with its filters, before the stage
+  // other tabs keep the filters; a sort you picked carries over only where it exists, else each tab
+  // opens on its own default (Applied: by applied date)
+  const forTab = (t: Tab): Filters => {
+    const keep = filters.sort !== defaultSort(tab) && sortsFor(t).includes(filters.sort);
+    return keep ? filters : { ...filters, sort: defaultSort(t), dir: defaultDir(defaultSort(t)) };
+  };
   const withStage = (s: Stage | null) => `/?${[base || "tab=applied", s && `stage=${s}`].filter(Boolean).join("&")}`;
 
   return (
@@ -105,7 +120,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         </div>
         <nav className="-mx-4 mt-3 flex gap-1 overflow-x-auto px-4">
           {TABS.map((t) => {
-            const query = toQuery(filters, t); // filters carry over between tabs
+            const query = toQuery(forTab(t), t); // filters carry over between tabs
             return (
               <Link
                 key={t}
@@ -131,6 +146,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         </p>
       )}
       <AddJob recent={added} />
+      <SearchBox key={tab} q={filters.q} tab={tab} />
+      {undated && undated.length > 0 && <SetDates rows={undated} />}
 
       {stats && stages && (
         <section className="mt-3 space-y-2" aria-label="Applications">
@@ -173,7 +190,14 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         </section>
       )}
 
-      <FilterPanel key={toQuery(filters, tab)} tab={tab} filters={filters} companies={companies} active={active} />
+      {/* search isn't in the key: typing must not remount the panel */}
+      <FilterPanel
+        key={toQuery({ ...filters, q: "" }, tab)}
+        tab={tab}
+        filters={filters}
+        companies={companies}
+        active={activeCount({ ...filters, q: "" })}
+      />
 
       <div className="mt-3 flex items-center justify-between gap-3 text-sm text-zinc-500">
         <p>
@@ -205,7 +229,15 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       )}
       {jobs.length === 0 && (
         <p className="mt-16 text-center text-zinc-500">
-          {failed.has("jobs") ? "Jobs didn't load. Reload to try again." : active ? "No jobs match these filters." : "Nothing here."}
+          {failed.has("jobs")
+            ? "Jobs didn't load. Reload to try again."
+            : filters.q
+              ? `Nothing here matches “${filters.q}”.`
+              : active
+                ? "No jobs match these filters."
+                : tab === "applied"
+                  ? "No applications yet. Apply from Best bets or New; Recon asks when you come back."
+                  : "Nothing here."}
         </p>
       )}
     </div>
@@ -222,6 +254,24 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
   // set back to "new" would still sit in Skipped, and backlog isn't news, so no "Back to New".
   // Best bets mixes New and Backlog: no "Back to New" there either.
   const moves = MOVES.filter(([s]) => s !== tab && !(s === "new" && (autoSkipped || tab === "backlog" || tab === "best")));
+  // Applied cards: the application first (date, stage, timeline, details); the rest behind "⋯"
+  const applied = job.status === "applied";
+  const ids = job.ids?.length ? job.ids : [job.job_id];
+  const secondary = (
+    <>
+      <Rate job={job} />
+      {!job.closed_at && <GoneButton jobId={job.job_id} />}
+      {moves.map(([status, label]) => (
+        <form key={status} action={setStatus}>
+          {ids.map((id) => <input key={id} type="hidden" name="jobId" value={id} />)}
+          <input type="hidden" name="status" value={status} />
+          <StatusButton className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
+            {label}
+          </StatusButton>
+        </form>
+      ))}
+    </>
+  );
 
   return (
     <li className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -231,7 +281,7 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
           <h2 className="mt-0.5 font-semibold leading-snug">{job.title}</h2>
           {job.location && <p className="mt-1 line-clamp-2 text-sm text-zinc-500">{job.location}</p>}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        {!applied && <div className="flex shrink-0 items-center gap-1.5">
           {job.fit_score != null && <FitScore score={job.fit_score} />}
           {job.tier != null && (
             <span
@@ -244,10 +294,16 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
               T{job.tier}
             </span>
           )}
-        </div>
+        </div>}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+      {applied && job.closed_at && (
+        <div className="mt-2 text-xs">
+          <Closed at={job.closed_at} />
+        </div>
+      )}
+
+      {!applied && <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
         {job.posted_on && <span className="text-zinc-500">{posted(job.posted_on, job.posted_at)} ·</span>}
         {edited && <span className="text-zinc-500">{edited} ·</span>}
         <span className="text-zinc-500">found {ago(job.first_seen_at)}</span>
@@ -265,14 +321,7 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
             {job.via === "list" ? "from list" : job.via === "email" ? "from email" : "added by you"}
           </span>
         )}
-        {job.closed_at && (
-          <span
-            title={`No longer on the company's board (closed ${ago(job.closed_at)})`}
-            className="rounded-full bg-zinc-800 px-2 py-0.5 font-semibold text-white dark:bg-zinc-200 dark:text-zinc-900"
-          >
-            closed
-          </span>
-        )}
+        {job.closed_at && <Closed at={job.closed_at} />}
         {(job.level === "entry" || job.level === "ii") && (
           <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
             {job.level === "entry" ? "Entry level" : "Level II"}
@@ -314,10 +363,70 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
             {f}
           </span>
         ))}
-      </div>
+      </div>}
 
-      {job.ai_why && (
-        <div className="mt-3 space-y-1 text-sm">
+      {job.ai_why && applied && (
+        <details className="mt-2 text-sm">
+          <summary className="cursor-pointer text-zinc-500">
+            AI fit{job.fit_score != null && <span className="ml-1 font-semibold tabular-nums">{job.fit_score}</span>}
+          </summary>
+          <AiWhy job={job} />
+        </details>
+      )}
+      {job.ai_why && !applied && <AiWhy job={job} />}
+
+
+      {job.more > 0 && (
+        <Link
+          href={`/?${toQuery({ ...filters, companies: [job.company] }, tab)}`}
+          className="mt-3 block text-sm font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          +{job.more} more from {job.company} →
+        </Link>
+      )}
+
+      {applied && <ApplicationPanel ids={ids} app={app} />}
+
+      {tab === "skipped" && (
+        <p className="mt-2 text-sm text-red-700 dark:text-red-400">
+          {autoSkipped ? `Auto-skipped: ${job.reason}` : "Skipped by you"}
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {applied ? (
+          <a
+            href={job.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            View posting ↗
+          </a>
+        ) : (
+          <ApplyLink ids={ids} title={job.title} company={job.company} url={job.url} />
+        )}
+        {applied ? <Menu>{secondary}</Menu> : secondary}
+      </div>
+    </li>
+  );
+}
+
+function Closed({ at }: { at: string }) {
+  return (
+    <span
+      title={`No longer on the company's board (closed ${ago(at)})`}
+      className="rounded-full bg-zinc-800 px-2 py-0.5 font-semibold text-white dark:bg-zinc-200 dark:text-zinc-900"
+    >
+      posting closed
+    </span>
+  );
+}
+
+// the AI judge's reasoning, rubric and missing skills
+function AiWhy({ job }: { job: JobRow }) {
+  return (
+    <div className="mt-3 space-y-1 text-sm">
           <p className="text-zinc-700 dark:text-zinc-300">
             {job.ai_resume && (
               <span className="mr-1.5 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-900/50 dark:text-violet-300">
@@ -332,52 +441,7 @@ function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: F
             </p>
           )}
           {job.ai_missing && <p className="text-zinc-500">Missing: {job.ai_missing}</p>}
-        </div>
-      )}
-
-      {job.more > 0 && (
-        <Link
-          href={`/?${toQuery({ ...filters, companies: [job.company] }, tab)}`}
-          className="mt-3 block text-sm font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-        >
-          +{job.more} more from {job.company} →
-        </Link>
-      )}
-
-      {job.status === "applied" && <ApplicationPanel jobId={job.job_id} app={app} />}
-
-      {tab === "skipped" && (
-        <p className="mt-2 text-sm text-red-700 dark:text-red-400">
-          {autoSkipped ? `Auto-skipped: ${job.reason}` : "Skipped by you"}
-        </p>
-      )}
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {job.status === "applied" ? (
-          <a
-            href={job.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-          >
-            View posting ↗
-          </a>
-        ) : (
-          <ApplyLink jobId={job.job_id} title={job.title} company={job.company} url={job.url} />
-        )}
-        <Rate job={job} />
-        {!job.closed_at && <GoneButton jobId={job.job_id} />}
-        {moves.map(([status, label]) => (
-          <form key={status} action={setStatus}>
-            <input type="hidden" name="jobId" value={job.job_id} />
-            <input type="hidden" name="status" value={status} />
-            <StatusButton className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
-              {label}
-            </StatusButton>
-          </form>
-        ))}
-      </div>
-    </li>
+    </div>
   );
 }
 
