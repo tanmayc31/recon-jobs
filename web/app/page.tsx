@@ -1,11 +1,30 @@
 import Link from "next/link";
 import { logout, setRating, setStatus } from "./actions";
 import { AddJob } from "./add-job";
+import { ApplicationPanel } from "./application";
+import { ApplyLink, ApplyPrompt } from "./apply-prompt";
 import { FilterPanel } from "./filters";
 import { GoneButton } from "./gone-button";
 import { StatusButton } from "./status-button";
 import { ago, posted, updated } from "@/lib/dates";
-import { PER_COMPANY, TABS, type JobRow, type Status, type Tab, listCompanies, listJobs, recentAdded, tabCounts } from "@/lib/db";
+import {
+  type Application,
+  PER_COMPANY,
+  STAGES,
+  STAGE_LABELS,
+  TABS,
+  type JobRow,
+  type Stage,
+  type Status,
+  type Tab,
+  applicationStats,
+  applicationsFor,
+  listCompanies,
+  listJobs,
+  recentAdded,
+  stageCounts,
+  tabCounts,
+} from "@/lib/db";
 import {
   DEFAULT_TAB,
   type Filters,
@@ -42,13 +61,19 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const tab: Tab = TABS.includes(params.get("tab") as Tab) ? (params.get("tab") as Tab) : DEFAULT_TAB;
   const filters = parseFilters(params, tab);
   const limit = parseLimit(params.get("limit")); // not a filter: changing a filter starts over at one page
-  const [{ jobs, matching, hidden }, counts, companies, added] = await Promise.all([
-    listJobs(tab, filters, limit),
+  const stage = tab === "applied" && STAGES.includes(params.get("stage") as Stage) ? (params.get("stage") as Stage) : null;
+  const [{ jobs, matching, hidden }, counts, companies, added, stages, stats] = await Promise.all([
+    listJobs(tab, filters, limit, stage),
     tabCounts(),
     listCompanies(),
     recentAdded(),
+    tab === "applied" ? stageCounts() : null,
+    tab === "applied" ? applicationStats() : null,
   ]);
+  const apps = await applicationsFor(jobs.filter((j) => j.status === "applied").map((j) => j.job_id));
   const active = activeCount(filters);
+  const base = toQuery(filters, tab); // this tab with its filters, before the stage
+  const withStage = (s: Stage | null) => `/?${[base || "tab=applied", s && `stage=${s}`].filter(Boolean).join("&")}`;
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 pb-16">
@@ -79,7 +104,49 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         </nav>
       </header>
 
+      <ApplyPrompt />
       <AddJob recent={added} />
+
+      {stats && stages && (
+        <section className="mt-3 space-y-2" aria-label="Applications">
+          <p className="flex flex-wrap gap-x-4 gap-y-1 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <span>
+              <span className="font-semibold tabular-nums">{stats.week}</span> this week
+            </span>
+            <span>
+              <span className="font-semibold tabular-nums">{stats.total}</span> total
+            </span>
+            <span title="Applications past Applied: assessment, interview, offer or rejected">
+              <span className="font-semibold tabular-nums">
+                {stats.total ? Math.round((100 * stats.responded) / stats.total) : 0}%
+              </span>{" "}
+              response rate
+            </span>
+          </p>
+          <nav className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 text-sm" aria-label="Stage">
+            {([null, ...STAGES] as (Stage | null)[]).map((s) => {
+              const n = s ? stages[s] : stats.total;
+              const on = s === stage;
+              return (
+                <Link
+                  key={s ?? "all"}
+                  href={withStage(s)}
+                  aria-current={on ? "page" : undefined}
+                  className={`shrink-0 rounded-full border px-3 py-1 ${
+                    on
+                      ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                      : n
+                        ? "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                        : "border-zinc-200 text-zinc-400 dark:border-zinc-800"
+                  }`}
+                >
+                  {s ? STAGE_LABELS[s] : "All"} <span className={on ? "opacity-70" : "text-zinc-400"}>{n}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </section>
+      )}
 
       <FilterPanel key={toQuery(filters, tab)} tab={tab} filters={filters} companies={companies} active={active} />
 
@@ -99,12 +166,12 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
       <ul className="mt-3 space-y-3">
         {jobs.map((job) => (
-          <JobCard key={job.job_id} job={job} tab={tab} filters={filters} />
+          <JobCard key={job.job_id} job={job} tab={tab} filters={filters} app={apps.get(job.job_id) ?? null} />
         ))}
       </ul>
       {matching > limit && limit < MAX_LIMIT && (
         <Link
-          href={`/?${[toQuery(filters, tab), `limit=${limit + PAGE_SIZE}`].filter(Boolean).join("&")}`}
+          href={`/?${[toQuery(filters, tab), stage && `stage=${stage}`, `limit=${limit + PAGE_SIZE}`].filter(Boolean).join("&")}`}
           scroll={false}
           className="mt-4 block rounded-xl border border-zinc-300 py-3 text-center text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
         >
@@ -118,7 +185,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   );
 }
 
-function JobCard({ job, tab, filters }: { job: JobRow; tab: Tab; filters: Filters }) {
+function JobCard({ job, tab, filters, app }: { job: JobRow; tab: Tab; filters: Filters; app: Application | null }) {
   const autoSkipped = job.decision === "skip";
   const allFlags = !autoSkipped && job.reason ? job.reason.split(", ") : [];
   const flags = allFlags.filter((f) => !f.startsWith("exp cap"));
@@ -250,6 +317,8 @@ function JobCard({ job, tab, filters }: { job: JobRow; tab: Tab; filters: Filter
         </Link>
       )}
 
+      {job.status === "applied" && <ApplicationPanel jobId={job.job_id} app={app} />}
+
       {tab === "skipped" && (
         <p className="mt-2 text-sm text-red-700 dark:text-red-400">
           {autoSkipped ? `Auto-skipped: ${job.reason}` : "Skipped by you"}
@@ -257,14 +326,18 @@ function JobCard({ job, tab, filters }: { job: JobRow; tab: Tab; filters: Filter
       )}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <a
-          href={job.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-        >
-          Apply ↗
-        </a>
+        {job.status === "applied" ? (
+          <a
+            href={job.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            View posting ↗
+          </a>
+        ) : (
+          <ApplyLink jobId={job.job_id} title={job.title} company={job.company} url={job.url} />
+        )}
         <Rate job={job} />
         {!job.closed_at && <GoneButton jobId={job.job_id} />}
         {moves.map(([status, label]) => (

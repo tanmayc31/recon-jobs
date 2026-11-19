@@ -1,6 +1,9 @@
 import "server-only";
 import postgres from "postgres";
 import { type Filters, asState } from "./filters";
+import { type Application, DETAILS, type Detail, RESPONDED, STAGES, type Stage } from "./stages";
+
+export * from "./stages";
 
 // Same Postgres the Python poller writes to. DATABASE_URL is server-only (no NEXT_PUBLIC_).
 const globalForDb = globalThis as unknown as { sql?: postgres.Sql };
@@ -135,9 +138,13 @@ export async function listJobs(
   tab: Tab,
   f: Filters,
   limit: number,
+  stage: Stage | null = null, // Applied tab: one stage only
 ): Promise<{ jobs: JobRow[]; matching: number; hidden: number }> {
   const sql = db();
-  const where = sql`${tabWhere(sql, tab)} AND ${filterWhere(sql, f)}`;
+  const byStage = tab === "applied" && stage
+    ? sql`COALESCE((SELECT a.stage FROM applications a WHERE a.job_id = j.job_id), 'applied') = ${stage}`
+    : sql`TRUE`;
+  const where = sql`${tabWhere(sql, tab)} AND ${filterWhere(sql, f)} AND ${byStage}`;
   const cap = tab === "best" && f.companies.length === 0 ? PER_COMPANY : 1_000_000;
   // rank: the job's place within its company; pos: its place overall (same sort)
   const ranked = sql`
@@ -181,6 +188,103 @@ export async function tabCounts(): Promise<Record<Tab, number>> {
 
 export async function updateStatus(jobId: string, status: Status) {
   await db()`UPDATE jobs SET status = ${status} WHERE job_id = ${jobId}`;
+  if (status === "applied") await startApplication(jobId);
+}
+
+// --- Applications: stages, dates and your details for Applied jobs (tables `applications` and
+// `application_events`, recon/store.py). jobs.status still drives the tabs.
+
+const eventId = () => crypto.randomUUID().replace(/-/g, "");
+
+/** Marked Applied (the popup's "Yes, applied" or the Applied button): today's date, unless the
+ *  application already has one (applied again after moving it away). */
+async function startApplication(jobId: string) {
+  const sql = db();
+  const at = now();
+  const [row] = await sql<{ applied_at: string | null }[]>`
+    INSERT INTO applications (job_id, stage, applied_at, stage_at) VALUES (${jobId}, 'applied', ${at}, ${at})
+    ON CONFLICT (job_id) DO UPDATE SET applied_at = COALESCE(applications.applied_at, EXCLUDED.applied_at)
+    RETURNING applied_at`;
+  if (row.applied_at === at) {
+    await sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`;
+  }
+}
+
+export async function updateStage(jobId: string, stage: Stage) {
+  const sql = db();
+  const at = now();
+  await sql`INSERT INTO applications (job_id, stage, stage_at) VALUES (${jobId}, ${stage}, ${at})
+            ON CONFLICT (job_id) DO UPDATE SET stage = EXCLUDED.stage, stage_at = EXCLUDED.stage_at`;
+  await sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, ${stage}, ${at})`;
+}
+
+/** Your details; empty fields are cleared. appliedOn (YYYY-MM-DD) sets the applied date, e.g. for
+ *  jobs applied before Recon tracked dates. */
+export async function updateDetails(jobId: string, details: Record<Detail, string | null>, appliedOn: string | null) {
+  const sql = db();
+  await sql`INSERT INTO applications (job_id) VALUES (${jobId}) ON CONFLICT (job_id) DO NOTHING`;
+  await sql`UPDATE applications SET ${sql(details, ...DETAILS)} WHERE job_id = ${jobId}`;
+  if (appliedOn) {
+    // noon UTC: the same calendar day in every US time zone
+    const at = `${appliedOn}T12:00:00+00:00`;
+    const changed = await sql`UPDATE applications SET applied_at = ${at} WHERE job_id = ${jobId}
+              AND COALESCE(substr(applied_at, 1, 10), '') <> ${appliedOn} RETURNING job_id`;
+    if (changed.length) {
+      // the timeline starts on the corrected day: move its first "applied", or add one
+      const [first] = await sql<{ id: string }[]>`SELECT id FROM application_events
+        WHERE job_id = ${jobId} AND stage = 'applied' ORDER BY at LIMIT 1`;
+      if (first) await sql`UPDATE application_events SET at = ${at} WHERE id = ${first.id}`;
+      else await sql`INSERT INTO application_events (id, job_id, stage, at) VALUES (${eventId()}, ${jobId}, 'applied', ${at})`;
+    }
+  }
+}
+
+/** "AI prep": recon/prep.py writes it (GitHub Actions, the judge's Gemini key and profile). */
+export async function queuePrep(jobId: string) {
+  await db()`UPDATE applications SET prep_state = 'queued' WHERE job_id = ${jobId}`;
+}
+
+export async function updatePrep(jobId: string, prep: string) {
+  await db()`UPDATE applications SET prep = ${prep || null} WHERE job_id = ${jobId}`;
+}
+
+export async function applicationsFor(jobIds: string[]): Promise<Map<string, Application>> {
+  if (!jobIds.length) return new Map();
+  const sql = db();
+  const [apps, events] = await Promise.all([
+    sql<Omit<Application, "events">[]>`
+      SELECT job_id, stage, applied_at, stage_at, notes, referral, resume, contact, link, deadline, follow_up,
+             prep, prep_state
+      FROM applications WHERE job_id IN ${sql(jobIds)}`,
+    sql<{ job_id: string; stage: Stage; at: string }[]>`
+      SELECT job_id, stage, at FROM application_events WHERE job_id IN ${sql(jobIds)} ORDER BY at`,
+  ]);
+  const out = new Map(apps.map((a) => [a.job_id, { ...a, events: [] as Application["events"] }]));
+  for (const e of events) out.get(e.job_id)?.events.push({ stage: e.stage, at: e.at });
+  return out;
+}
+
+/** Applied tab: jobs per stage (no application row yet: "applied"). */
+export async function stageCounts(): Promise<Record<Stage, number>> {
+  const rows = await db()<{ stage: Stage; n: number }[]>`
+    SELECT COALESCE(a.stage, 'applied') AS stage, COUNT(*)::int AS n
+    FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
+    WHERE j.status = 'applied' GROUP BY 1`;
+  const counts = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
+  for (const r of rows) if (r.stage in counts) counts[r.stage] = r.n;
+  return counts;
+}
+
+/** Applications this week (since Monday, Eastern), in all, and how many got an answer. */
+export async function applicationStats(): Promise<{ week: number; total: number; responded: number }> {
+  const [row] = await db()<{ week: number; total: number; responded: number }[]>`
+    SELECT COUNT(*) FILTER (WHERE a.applied_at::timestamptz >=
+             date_trunc('week', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')::int AS week,
+           COUNT(*)::int AS total,
+           COUNT(*) FILTER (WHERE a.stage IN ${db()(RESPONDED)})::int AS responded
+    FROM jobs j LEFT JOIN applications a ON a.job_id = j.job_id
+    WHERE j.status = 'applied'`;
+  return row;
 }
 
 // "Add job": URLs you pasted, handled by recon/add.py (the same `added` table)

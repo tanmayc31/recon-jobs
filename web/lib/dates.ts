@@ -32,3 +32,35 @@ export function updated(postedAt: string | null, updatedAt: string | null, now =
   if (Number.isNaN(p) || Number.isNaN(u) || u - p <= 2 * DAY) return null;
   return `updated ${ago(updatedAt, now)}`;
 }
+
+// Applications: calendar days where you are (Boston)
+const TZ = "America/New_York";
+const dayKey = (t: number) => new Date(t).toLocaleDateString("en-CA", { timeZone: TZ }); // YYYY-MM-DD
+
+/** "Nov 18" (with the year when it isn't this year), in Eastern time. A bare YYYY-MM-DD is that day. */
+export function day(iso: string, now = Date.now()): string {
+  const bare = /^\d{4}-\d{2}-\d{2}$/.test(iso);
+  const t = Date.parse(bare ? `${iso}T12:00:00Z` : iso);
+  if (Number.isNaN(t)) return "";
+  const sameYear = dayKey(t).slice(0, 4) === dayKey(now).slice(0, 4);
+  return new Date(t).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: bare ? "UTC" : TZ,
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+/** Whole calendar days (Eastern) from iso to now. */
+export function daysSince(iso: string, now = Date.now()): number {
+  const t = Date.parse(iso);
+  return Math.round((Date.parse(dayKey(now)) - Date.parse(dayKey(t))) / DAY);
+}
+
+/** "Applied Nov 18 (3 days ago)"; "(today)", "(yesterday)". */
+export function appliedLabel(appliedAt: string | null, now = Date.now()): string {
+  if (!appliedAt) return "Applied (date not recorded)";
+  const n = daysSince(appliedAt, now);
+  const rel = n <= 0 ? "today" : n === 1 ? "yesterday" : `${n} days ago`;
+  return `Applied ${day(appliedAt, now)} (${rel})`;
+}

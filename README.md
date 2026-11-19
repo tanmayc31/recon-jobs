@@ -113,6 +113,15 @@ alone; Recon never requests jobright.ai pages, logs into Jobright or reads its w
 Settings (local env file and GitHub secrets): GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
 GMAIL_REFRESH_TOKEN (from `python -m recon.sources.gmail --auth`), JOBRIGHT_SENDER.
 
+## Application tracking
+Apply remembers the job; coming back to the Recon tab asks "Did you apply?" (Yes: Applied with
+today's date; Not interested: Skipped). Applied cards have a stage (Applied, Assessment, Interview,
+Offer, Rejected, Ghosted, Withdrawn) with a dated timeline, optional details (notes, referral,
+resume version, contact, link, deadline, follow-up), and at Assessment or Interview an "AI prep"
+checklist written by recon/prep.py (the judge's Gemini key and profile, in GitHub Actions lane
+"add") that you can edit. Stored in the `applications` and `application_events` tables;
+jobs.status still drives the tabs.
+
 ## Add a job by URL
 The dashboard's "Add job" box queues a link; `python -m recon.add` (GitHub Actions lane "add",
 started by the dashboard when GITHUB_DISPATCH_TOKEN is set in Vercel) reads, filters and judges it.

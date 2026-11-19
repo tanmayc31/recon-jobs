@@ -86,6 +86,30 @@ CREATE TABLE IF NOT EXISTS companies (
     company       TEXT PRIMARY KEY,   -- fetched successfully at least once
     first_run_at  TEXT                -- jobs found in this first run are backlog, not new
 );
+""", """
+CREATE TABLE IF NOT EXISTS applications (
+    job_id        TEXT PRIMARY KEY,   -- a job you applied to (jobs.status 'applied' still drives the tabs)
+    stage         TEXT DEFAULT 'applied',  -- applied / assessment / interview / offer / rejected / ghosted / withdrawn
+    applied_at    TEXT,               -- null: applied before Recon tracked dates
+    stage_at      TEXT,               -- last stage change
+    notes         TEXT,
+    referral      TEXT,               -- who referred you
+    resume        TEXT,               -- resume version used
+    contact       TEXT,               -- recruiter / contact name
+    link          TEXT,               -- assessment or interview link
+    deadline      TEXT,               -- ISO dates
+    follow_up     TEXT,
+    prep          TEXT,               -- AI prep checklist (recon/prep.py), editable in the dashboard
+    prep_state    TEXT,               -- queued / done / failed
+    prep_at       TEXT
+);
+""", """
+CREATE TABLE IF NOT EXISTS application_events (
+    id            TEXT PRIMARY KEY,
+    job_id        TEXT,
+    stage         TEXT,               -- the stage it moved to
+    at            TEXT
+);
 """]
 
 

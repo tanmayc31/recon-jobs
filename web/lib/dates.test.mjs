@@ -1,7 +1,7 @@
 // Run with: npm test
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { posted, updated } from "./dates.ts";
+import { appliedLabel, day, daysSince, posted, updated } from "./dates.ts";
 
 const NOW = Date.parse("2026-11-05T18:00:00Z");
 
@@ -23,4 +23,19 @@ test("posted label is the real date, not Workday's text from when we first saw i
   assert.equal(posted("2026-10-09", "2026-10-09T17:58:39-04:00", NOW), "posted Oct 9");
   assert.equal(posted("2026-10-06", "Posted 30+ Days Ago", NOW), "posted before Oct 6");
   assert.equal(posted("2025-12-30", "2025-12-30", NOW), "posted Dec 30, 2025");
+});
+
+test("applied label counts calendar days in Eastern time", () => {
+  const now = Date.parse("2026-11-21T15:00:00Z"); // Nov 21, 10am Eastern
+  assert.equal(appliedLabel("2026-11-18T14:00:00+00:00", now), "Applied Nov 18 (3 days ago)");
+  assert.equal(appliedLabel("2026-11-21T02:00:00+00:00", now), "Applied Nov 20 (yesterday)"); // 9pm Eastern
+  assert.equal(appliedLabel("2026-11-21T13:00:00+00:00", now), "Applied Nov 21 (today)");
+  assert.equal(appliedLabel(null, now), "Applied (date not recorded)");
+  assert.equal(daysSince("2026-10-31T16:00:00+00:00", now), 21);
+});
+
+test("bare dates (deadline, follow-up) are that calendar day", () => {
+  const now = Date.parse("2026-11-21T15:00:00Z");
+  assert.equal(day("2026-11-25", now), "Nov 25");
+  assert.equal(day("2027-01-05", now), "Jan 5, 2027");
 });

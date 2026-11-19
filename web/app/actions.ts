@@ -5,15 +5,23 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { COOKIE, MAX_AGE, isCorrectPassword, isValidSession, sessionToken } from "@/lib/auth";
 import {
+  DETAILS,
+  type Detail,
   RATINGS,
   type Rating,
+  STAGES,
   STATUSES,
+  type Stage,
   type Status,
   closeJob,
   jobForCheck,
   keepAdded,
   queueAdded,
+  queuePrep,
+  updateDetails,
+  updatePrep,
   updateRating,
+  updateStage,
   updateStatus,
 } from "@/lib/db";
 import { dispatchAdd } from "@/lib/dispatch";
@@ -31,6 +39,58 @@ export async function setStatus(formData: FormData) {
   if (!jobId || !STATUSES.includes(status)) throw new Error("Bad request");
   await updateStatus(jobId, status);
   revalidatePath("/");
+}
+
+// "Did you apply?" popup: Yes -> Applied (today's date), Not interested -> Skipped
+export async function answerApplied(jobId: string, answer: "applied" | "skipped") {
+  await requireSession();
+  if (!jobId || !["applied", "skipped"].includes(answer)) throw new Error("Bad request");
+  await updateStatus(jobId, answer);
+  revalidatePath("/");
+}
+
+export async function setStage(jobId: string, stage: Stage) {
+  await requireSession();
+  if (!jobId || !STAGES.includes(stage)) throw new Error("Bad request");
+  await updateStage(jobId, stage);
+  revalidatePath("/");
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_FIELDS: Detail[] = ["deadline", "follow_up"];
+
+export async function saveDetails(_prev: string | null, formData: FormData): Promise<string> {
+  await requireSession();
+  const jobId = String(formData.get("jobId") ?? "");
+  if (!jobId) throw new Error("Bad request");
+  const details = Object.fromEntries(
+    DETAILS.map((d) => {
+      const v = String(formData.get(d) ?? "").trim().slice(0, d === "notes" ? 5000 : 500);
+      return [d, v && (!DATE_FIELDS.includes(d) || DATE.test(v)) ? v : null];
+    }),
+  ) as Record<Detail, string | null>;
+  const appliedOn = String(formData.get("appliedOn") ?? "");
+  await updateDetails(jobId, details, DATE.test(appliedOn) ? appliedOn : null);
+  revalidatePath("/");
+  return "Saved";
+}
+
+// "AI prep": queued for recon/prep.py, started right away when GITHUB_DISPATCH_TOKEN is set
+export async function requestPrep(jobId: string): Promise<boolean> {
+  await requireSession();
+  if (!jobId) throw new Error("Bad request");
+  await queuePrep(jobId);
+  revalidatePath("/");
+  return dispatchAdd();
+}
+
+export async function savePrep(_prev: string | null, formData: FormData): Promise<string> {
+  await requireSession();
+  const jobId = String(formData.get("jobId") ?? "");
+  if (!jobId) throw new Error("Bad request");
+  await updatePrep(jobId, String(formData.get("prep") ?? "").slice(0, 10000));
+  revalidatePath("/");
+  return "Saved";
 }
 
 // "1" / "-1" sets 👍 / 👎; "" clears it (pressing your current rating again)

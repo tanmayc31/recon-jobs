@@ -87,7 +87,7 @@ jobs:
         run: python -m recon.linkcheck --recheck-open
 
   add:
-    # jobs pasted into the dashboard's "Add job" box: the dashboard starts lane "add" right away;
+    # jobs pasted into the dashboard's "Add job" box and "AI prep" requests: the dashboard starts lane "add" right away;
     # every 1-2 run also handles any still queued
     if: ${{ inputs.lane == 'add' || (inputs.lane == '1-2' && !inputs.recheck) }}
     concurrency:
@@ -112,6 +112,14 @@ jobs:
           CANDIDATE_PROFILE: ${{ secrets.CANDIDATE_PROFILE }}
           CI: "true"
         run: python -m recon.add
+      - name: AI prep for applications (counts only)
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CANDIDATE_PROFILE: ${{ secrets.CANDIDATE_PROFILE }}
+          CI: "true"
+        run: python -m recon.prep
 
   judge:
     needs: tier-1-2
