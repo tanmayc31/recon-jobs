@@ -20,11 +20,11 @@ import httpx
 
 from recon.env import load_env
 from recon.main import HEADERS, quiet
-from recon.sources import ashby, eightfold, listings, meta, oracle
+from recon.sources import ashby, eightfold, google, listings, meta, oracle
 from recon.store import Store
 
 DELAY = 0.3
-PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2, "list": 3, "eightfold": 2, "oracle": 2, "meta": 2}   # per site, polite
+PARALLEL = {"workday": 6, "greenhouse": 4, "lever": 3, "ashby": 3, "amazon": 2, "list": 3, "eightfold": 2, "oracle": 2, "meta": 2, "google": 2}   # per site, polite
 SAMPLE = {"workday": 20, "greenhouse": 5, "lever": 5, "ashby": 5, "amazon": 5}
 COLS = ["job_id", "source", "url", "source_ids", "company", "title"]
 WORKDAY = [  # public job URL -> parts of the detail API URL
@@ -109,6 +109,11 @@ async def is_open(client: httpx.AsyncClient, job: dict, boards: dict) -> bool | 
             return await meta.details(client, ids(job)[0]) is not None
         except meta.Blocked:
             return None   # a login or security check: can't tell, and don't work around it
+    if source == "google":   # a taken-down job's page shows the search instead (no job data)
+        try:
+            return await google.details(client, ids(job)[0]) is not None
+        except google.Blocked:
+            return None   # a block or "unusual traffic" page: can't tell, and don't work around it
     if source == "ashby":   # no per-job endpoint: is it on the board?
         if slug not in boards:
             boards[slug] = asyncio.ensure_future(ashby_board(client, slug))   # one fetch per board

@@ -89,6 +89,14 @@ export async function checkOpen(job: OpenCheck): Promise<Verdict> {
       if (r.status === 404 || new URL(r.url).pathname.startsWith("/jobs/position-not-available")) return "gone";
       return r.status === 200 && new URL(r.url).pathname.includes(id) ? "open" : "unknown";
     }
+    if (source === "google") {
+      // a taken-down job's page shows the search instead: its embedded job data (ds:0) is empty
+      const r = await get(`https://www.google.com/about/careers/applications/jobs/results/${id}`);
+      if (r.status !== 200 || r.url.includes("/sorry/")) return "unknown";
+      const data = (await r.text()).match(/AF_initDataCallback\(\{key: 'ds:0'.*?data:([\s\S]*?), sideChannel: \{\}\}\);<\/script>/)?.[1];
+      if (data === undefined) return "unknown";
+      return data.includes(id) ? "open" : data.trim() === "[]" ? "gone" : "unknown";
+    }
     if (source === "amazon") {
       for (const req of (job.source_ids ?? "").split(",").filter(Boolean)) {
         if ((await get(`https://www.amazon.jobs/en/jobs/${req}`)).status === 200) return "open";

@@ -104,6 +104,13 @@ signed out: the job search page (for its anonymous request token), its job searc
 open job in one answer), and each new matching job's page (JobPosting JSON-LD). If Meta answers
 with a login or security check, the run fails with Blocked and Recon doesn't work around it.
 
+## Google
+recon/sources/google.py reads google.com/about/careers through the same public request its "next
+page" button makes, signed out (a batchexecute RPC): every US job, 20 a page, with its
+responsibilities and qualifications, so no per-job requests. The open check reads the job's page. If
+Google answers with a block or its "unusual traffic" page, the run fails with Blocked and Recon
+doesn't work around it.
+
 ## Jobright alert emails (off)
 Not set up, and it stays off: Jobright's alert links lead to jobright.ai pages, which Recon never
 reads, so the emails add nothing. Without the settings below the source does nothing.

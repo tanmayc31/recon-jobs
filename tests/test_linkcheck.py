@@ -203,3 +203,24 @@ def test_meta_open_gone_and_blocked(monkeypatch):
         job("meta:meta:222", "meta", "https://www.metacareers.com/jobs/222/"),
     ], httpx.MockTransport(h)))}
     assert got == {"meta:meta:1000000000000001": False, "meta:meta:1982695235662578": True, "meta:meta:222": None}
+
+
+def test_google_open_gone_and_blocked(monkeypatch):
+    monkeypatch.setattr(linkcheck, "DELAY", 0)
+
+    def h(req):   # real: a taken-down job's page is the search page, its job data (ds:0) empty
+        jid = req.url.path.rstrip("/").split("/")[-1]
+        if jid == "222":
+            return httpx.Response(302, headers={"location": "https://www.google.com/sorry/index"})
+        if req.url.path.startswith("/sorry"):
+            return httpx.Response(429)
+        data = "[]" if jid == "100000000000000001" else f'[["{jid}","Software Engineer"]]'
+        return httpx.Response(200, text=f"<script>AF_initDataCallback({{key: 'ds:0', hash: '1', data:{data}, sideChannel: {{}}}});</script>")
+    base = "https://www.google.com/about/careers/applications/jobs/results/"
+    got = {j["job_id"]: ok for j, ok in asyncio.run(real_check_open([
+        job("google:google:100000000000000001", "google", base + "100000000000000001-x"),
+        job("google:google:137359440260014790", "google", base + "137359440260014790-software-engineer"),
+        job("google:google:222", "google", base + "222-x"),
+    ], httpx.MockTransport(h)))}
+    assert got == {"google:google:100000000000000001": False, "google:google:137359440260014790": True,
+                   "google:google:222": None}
