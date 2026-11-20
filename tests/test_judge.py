@@ -311,3 +311,32 @@ def test_instructions_cover_generic_years_and_or_similar():
     from recon.judge import INSTRUCTIONS
     assert "GENERIC years line" in INSTRUCTIONS and '"X or similar"' in INSTRUCTIONS
     assert "JavaScript isn't Java" in INSTRUCTIONS
+
+
+def test_a_language_list_you_dont_work_in_is_always_a_gap():
+    from recon.judge import clean, language_gaps, with_gaps
+    # real Amazon "Software Development Engineer, Amazon Q" basic qualification
+    amazon = ("BASIC QUALIFICATIONS: - 2+ years of non-internship professional software development experience - "
+              "Programming experience with at least one software programming language - 1+ years of experience "
+              "developing software applications, tools, systems, and services using: C#, C++, Java, or Perl experience")
+    gaps = language_gaps(amazon.replace("BASIC QUALIFICATIONS:", "Minimum qualifications:"))
+    assert gaps == ["1+ years with C#, C++, Java, or Perl"]
+    a = with_gaps(clean(dict(GOOD, job_id="amazon:q", skills_match=85, level_fit=80, domain_fit=85)), gaps)
+    assert a["fit_score"] == 60 and a["skills_match"] == 60 and "Java" in a["missing_skills"][0]
+    # a list that includes one of your languages isn't a gap; preferred lists never are
+    assert language_gaps("Minimum qualifications: Experience with Python, Java, or Go.") == []
+    assert language_gaps("Preferred qualifications: Experience with C++, Java or Rust.") == []
+    assert language_gaps("Minimum qualifications: Experience with JavaScript and TypeScript.") == []
+
+
+def test_example_language_lists_are_not_gaps():
+    from recon.judge import language_gaps
+    # real Twitch, Stripe and Read AI lines: examples or your language first
+    assert language_gaps("Minimum qualifications: Proficient coding skills in modern languages and frameworks such as "
+                         "Go, React, Kotlin, Swift.") == []
+    assert language_gaps("Minimum qualifications: Ability to write high-quality code (in programming languages like Go, "
+                         "Java, C++).") == []
+    assert language_gaps("Minimum qualifications: Proficiency in Python (or similar languages such as Java, C++).") == []
+    # real Twitch Payments: a closed list
+    assert language_gaps("Minimum qualifications: Proficient experience level in one or more of the following "
+                         "language: Go, Ruby, Java, C++.") != []

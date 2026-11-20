@@ -197,6 +197,50 @@ def cap_flag(a: dict) -> str | None:
     return f"exp cap: max {n} {'yr' if n == 1 else 'yrs'}"
 
 
+# Languages you use at work. A minimum that lists only other languages ("1+ years ... using: C#, C++,
+# Java, or Perl") is a gap whatever the model says: a listed skill without professional work isn't
+# enough, and JavaScript isn't Java.
+MY_WORK_LANGUAGES = {"python", "typescript", "javascript", "sql"}
+LANGUAGE = r"c\+\+|c#|java(?!script)|javascript|typescript|python|perl|go(?:lang)?|rust|ruby|kotlin|scala|swift|php|c(?![#+\w])"
+LANGUAGE_LIST = re.compile(rf"\b(?:{LANGUAGE})(?:\s*,\s*(?:or\s+|and\s+)?(?:{LANGUAGE}))+(?:,?\s+(?:or|and)\s+(?:{LANGUAGE}))?",
+                           re.I)
+
+
+# examples, not a closed list ("languages such as Go, Kotlin", "like Go, Java, C"): "X or similar"
+EXAMPLES = re.compile(r"\b(such\s+as|like|e\.?g\.?|for\s+example|including|similar|comparable)\b[^.]{0,30}$", re.I)
+
+
+def language_gaps(description: str) -> list[str]:
+    """Minimum-qualification lines that require one of a closed list of languages, none of them
+    yours ("1+ years ... using: C#, C++, Java, or Perl"). Example lists and lines that already
+    name one of your languages ("Python (or similar languages such as Java, C++)") aren't gaps."""
+    minimum = sections(description)["minimum"]
+    gaps = []
+    for m in LANGUAGE_LIST.finditer(minimum):
+        langs = {x.lower() for x in re.findall(LANGUAGE, m.group(0), re.I)}
+        start = max(minimum.rfind(".", 0, m.start()), minimum.rfind(" - ", 0, m.start()), 0)
+        line = minimum[start:m.end()]
+        before = minimum[start:m.start()]
+        mine = {x.lower() for x in re.findall(LANGUAGE, before, re.I)} & MY_WORK_LANGUAGES
+        if len(langs) >= 2 and not langs & MY_WORK_LANGUAGES and not mine and not EXAMPLES.search(before):
+            years = re.search(r"\b\d+\+?\s*years?\b", line)   # "1+ years with C#, C++, Java, or Perl"
+            gaps.append(f"{years.group(0) + ' with ' if years else ''}{m.group(0).strip()}")
+    return list(dict.fromkeys(gaps))
+
+
+def with_gaps(a: dict, gaps: list[str]) -> dict:
+    """The answer with these language minimums added as unmet (the caps applied again)."""
+    known = " ".join(u["requirement"] for u in a["unmet_minimums"]).lower()
+    new = [{"requirement": g, "kind": "language_or_framework"} for g in gaps if g.lower()[:40] not in known]
+    if not new:
+        return a
+    a["unmet_minimums"] = new + a["unmet_minimums"]
+    a["skills_match"] = min(a["skills_match"], SKILLS_GAP_CAP)
+    a["fit_score"] = min(round(sum(a[k] * w for k, w in WEIGHTS.items())), GAP_CAP)
+    a["missing_skills"] = list(dict.fromkeys([g for g in gaps] + a["missing_skills"]))[:5]
+    return a
+
+
 def generic_years_met(requirement: str) -> bool:
     """A generic years line ("2+ years of building complex software systems") your experience covers."""
     m = GENERIC_YEARS.match(requirement)
@@ -272,10 +316,11 @@ async def judge(client: httpx.AsyncClient, key: str, jobs: list[dict], profile: 
     answers = json.loads(r.json()["candidates"][0]["content"]["parts"][0]["text"])
     wanted = {job["job_id"] for job in jobs}
     out = {}
+    descriptions = {job["job_id"]: job.get("description") or "" for job in jobs}
     for a in answers if isinstance(answers, list) else []:
         a = clean(a)
         if a and a["job_id"] in wanted and a["job_id"] not in out:   # unknown or repeated ids ignored
-            out[a["job_id"]] = a
+            out[a["job_id"]] = with_gaps(a, language_gaps(descriptions[a["job_id"]]))
     return out
 
 
