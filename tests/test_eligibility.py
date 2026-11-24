@@ -337,3 +337,12 @@ def test_degree_substitutes_and_ranges():
     assert min_years("Bachelor’s Degree and four to six years of experience or equivalent education") == 4
     # real stacked minimums still take the largest (OpenAI)
     assert min_years("- 7+ years of experience as a software engineer") == 7
+
+
+def test_a_preferred_inside_a_parenthetical_list_doesnt_soften_the_ask():
+    # Highmark Health (Nov 2026): the "preferred" is about which language, not the 3 years
+    text = ("EXPERIENCE Required 3 years of Experience in at least one modern programming languages "
+            "(Java, Python , JavaScript, ACE, IIB/ITX, Informatica preferred), and experience with at least two "
+            "of the following: React, Angular v4+, NodeJS.")
+    assert min_years(text) == 3
+    assert min_years("Python experience. 5+ years of backend experience (preferred).") is None

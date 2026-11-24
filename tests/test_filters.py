@@ -130,3 +130,8 @@ def test_any_state_code_after_a_comma_is_us():
         assert is_match(job("Software Engineer", loc)), loc
     for loc in ["Remote in Canada", "Toronto, ON", "Pune, MH", "Zurich, ZH", "Vancouver, BC"]:
         assert not is_match(job("Software Engineer", loc)), loc
+
+
+def test_drops_leader_titles():
+    assert not is_match(job("Software Engineering Technical Leader", "San Jose, California, US"))   # Cisco, 8+ years
+    assert is_match(job("Software Engineer, Leadership Development Program"))

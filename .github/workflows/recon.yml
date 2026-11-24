@@ -4,15 +4,18 @@ name: recon
 # cron-job.org triggers them through workflow_dispatch (GitHub's own cron is unreliable):
 #   1-2        Tier 1-2, all ATSes                  every 30 min
 #   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
-#   3-workday  Tier 3 Workday                       every 6 h
+#   3-workday  Tier 3 Workday                       every 3 h (~350 of 635 companies a run,
+#                                                    longest-waiting first: each every ~6 h)
 # Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
-# filter rules reach old jobs. Daily open check (GitHub cron): gone jobs leave New/Backlog/Later;
+# filter rules reach old jobs. Workday rechecks again 4 h later: one run reaches about half its
+# companies, and the second starts with the ones the first didn't reach. Daily open check (GitHub cron): gone jobs leave New/Backlog/Later;
 # Best bets and New are checked every 3 hours, so a dead job leaves before you click it.
 # AI judge: after each normal 1-2 run, scores up to 48 unjudged matches from any lane,
 # 6 per Gemini request.
 on:
   schedule:
     - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US
+    - cron: "0 8 * * 1"      # weekly recheck, Workday's second half
     - cron: "0 10 * * *"     # daily open check: 10:00 UTC = early morning US
     - cron: "30 */3 * * *"   # Best bets and New open check, every 3 hours
   workflow_dispatch:          # cron-job.org and the manual "Run workflow" button
@@ -57,12 +60,12 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
   tier-3-workday:
-    if: github.event.schedule == '0 4 * * 1' || inputs.lane == '3-workday'
+    if: github.event.schedule == '0 4 * * 1' || github.event.schedule == '0 8 * * 1' || inputs.lane == '3-workday'
     uses: ./.github/workflows/recon-lane.yml
     with:
       lane: "3-workday"
       args: "--tiers 3 --ats workday"
-      recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
+      recheck: ${{ github.event.schedule == '0 4 * * 1' || github.event.schedule == '0 8 * * 1' || inputs.recheck == true }}
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 

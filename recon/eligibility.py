@@ -69,6 +69,9 @@ CLEARED_TITLE = re.compile(r"\b(ctj|cleared|poly|polygraph|ts\s*/\s*sci|top\s+se
 # Soft words: the sentence is a wish, not a requirement
 SOFT_CLEARANCE = re.compile(r"beneficial|preferred|a\s+plus|nice\s+to\s+have|not\s+necessary", re.I)
 SOFT_YEARS = re.compile(r"preferred|nice\s+to\s+have|bonus|a\s+plus", re.I)
+# A list in parentheses is an aside: "3 years ... languages (Java, Python, ... Informatica preferred)"
+# is still a minimum (Highmark). "5+ years (preferred)" stays soft.
+ASIDE_LIST = re.compile(r"\([^()]*,[^()]*\)")
 # "without sponsorship for an export license" is export law, not visas (Cloudflare boilerplate)
 EXPORT_LICENSE = re.compile(r"\s*for\s+an?\s+export\s+licen[cs]e", re.I)
 
@@ -276,7 +279,7 @@ def min_years(text: str) -> int | None:
     asks = []   # (years, degree or None)
     for m in found:
         s = sentence(text, m)
-        if SOFT_YEARS.search(s) or IN_LIEU.search(text, max(m.start() - 150, 0), m.start()) or EQUIVALENT.match(text, m.end()):
+        if SOFT_YEARS.search(ASIDE_LIST.sub("", s)) or IN_LIEU.search(text, max(m.start() - 150, 0), m.start()) or EQUIVALENT.match(text, m.end()):
             continue
         raw = m.group(1).lower()
         n = NUM_WORDS.get(raw) or int(raw)
