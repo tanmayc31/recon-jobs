@@ -331,3 +331,21 @@ def test_missed_once_and_its_site_says_gone_closes_at_once(tmp_path, monkeypatch
     run_once(tmp_path, monkeypatch, [job(1)])
     assert asked == ["greenhouse:co:2"] and closed(tmp_path)["greenhouse:co:2"] == 1
     assert "Closed (missing from the board, and its site says gone): 1" in capsys.readouterr().out
+
+
+def test_rotation_starts_with_the_companies_waited_on_longest(tmp_path):
+    # Tier 3 Workday reached ~350 of 635 companies a run in random order: some waited a day
+    companies = [{"company": c} for c in ["A", "B", "C", "D"]]
+    last = {"A": "2026-11-23T17:00:00+00:00", "B": "2026-11-23T11:00:00+00:00", "C": "2026-11-23T14:00:00+00:00"}
+    assert [c["company"] for c in main.rotate(companies, last)] == ["D", "B", "C", "A"]   # never scanned first
+
+
+def test_a_run_records_which_companies_it_started(tmp_path, monkeypatch):
+    s = Store(tmp_path / "t.db")
+    s.mark_runs(["A", "B"])
+    s.commit()
+    first = s.last_runs()
+    assert set(first) == {"A", "B"}
+    s.mark_runs(["A"])
+    s.commit()
+    assert s.last_runs()["A"] >= first["A"] and s.last_runs()["B"] == first["B"]

@@ -87,6 +87,11 @@ CREATE TABLE IF NOT EXISTS companies (
     first_run_at  TEXT                -- jobs found in this first run are backlog, not new
 );
 """, """
+CREATE TABLE IF NOT EXISTS company_runs (
+    company       TEXT PRIMARY KEY,
+    last_run_at   TEXT                -- the last time a run started this company (main.rotate)
+);
+""", """
 CREATE TABLE IF NOT EXISTS applications (
     job_id        TEXT PRIMARY KEY,   -- a job you applied to (jobs.status 'applied' still drives the tabs)
     stage         TEXT DEFAULT 'applied',  -- applied / assessment / interview / offer / rejected / ghosted / withdrawn
@@ -239,6 +244,15 @@ class Store:
         (description fetch failed) are left out, so the next run fetches and judges them."""
         return {r[0]: (r[1], r[2], r[3]) for r in self.execute(
             "SELECT job_id, decision, reason, min_years FROM jobs WHERE decision <> 'unverified'").fetchall()}
+
+    def last_runs(self) -> dict[str, str]:
+        """company -> when a run last started it (never started: missing)."""
+        return dict(self.execute("SELECT company, last_run_at FROM company_runs").fetchall())
+
+    def mark_runs(self, companies: list[str]):
+        t = now()
+        self.executemany("INSERT INTO company_runs (company, last_run_at) VALUES (?, ?)"
+                         " ON CONFLICT (company) DO UPDATE SET last_run_at = EXCLUDED.last_run_at", [(c, t) for c in companies])
 
     def seen_companies(self) -> set[str]:
         return {r[0] for r in self.execute("SELECT company FROM companies").fetchall()}

@@ -26,8 +26,8 @@ HEADERS = {"User-Agent": "recon-jobs/0.2"}
 # Separate lanes: slow Workday tenants (~20s each) can't starve the fast ATSes (~0.1s each)
 PARALLEL = {"workday": 10, "other": 20}
 # GitHub kills the job at 15 min (incl. setup). Stop starting companies after DEADLINE,
-# and give any one company at most COMPANY_TIMEOUT, so fetching ends by ~10 min.
-DEADLINE = 8 * 60
+# and give any one company at most COMPANY_TIMEOUT, so fetching ends by ~12 min.
+DEADLINE = 10 * 60
 COMPANY_TIMEOUT = 2 * 60
 LIST_TIMEOUT = 6 * 60   # a job list resolves every new row's link; the first run has hundreds
 # sources that read a company's whole board: job lists add nothing for these companies
@@ -62,12 +62,21 @@ def load_companies(path: Path = COMPANIES, referrals: Path = REFERRALS) -> list[
     return companies
 
 
+def rotate(companies: list[dict], last: dict[str, str]) -> list[dict]:
+    """Companies waited on longest first (never started: first of all), random among equals. When
+    the time budget runs out, the ones left wait less than a run cycle: the Tier 3 Workday lane
+    reaches ~350 of 635 companies a run, so each is scanned every second run (every ~6 h)."""
+    random.shuffle(companies)
+    return sorted(companies, key=lambda c: last.get(c["company"]) or "")
+
+
 async def fetch_company(client, sems, company, deadline, outcome):
     """Jobs, or None if the company failed or wasn't reached in time (not its first run then)."""
     async with sems["workday" if company["ats"] == "workday" else "other"]:
         if time.monotonic() > deadline:
             outcome["not reached"] += 1
             return None
+        company["reached"] = True   # started this run: back of the queue next time (rotate)
         try:
             limit = LIST_TIMEOUT if company["ats"] in SLOW else COMPANY_TIMEOUT
             jobs = await asyncio.wait_for(SOURCES[company["ats"]].fetch(client, company), limit)
@@ -113,8 +122,9 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
         for c in companies:
             if c["ats"] == "listings":
                 c["list_ids"], c["covered"], c["urls"], c["direct"] = list_ids, covered, urls, direct
+    last = store.last_runs()
     store.close()
-    random.shuffle(companies)   # if the time budget runs out, a different set waits each run
+    companies = rotate(companies, last)   # if the time budget runs out, the most recently scanned wait
     sems = {lane: asyncio.Semaphore(n) for lane, n in PARALLEL.items()}
     outcome = Counter()
     async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
@@ -187,6 +197,7 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     # missed once by a complete listing: ask the site now rather than wait a run (6 h for Tier 3)
     missing = store.just_missed(list(listed))
     store.mark_seen([c["company"] for c, jobs in zip(companies, results) if jobs is not None])
+    store.mark_runs([c["company"] for c in companies if c.get("reached")])
     store.commit()
     store.close()
     gone_now = []
