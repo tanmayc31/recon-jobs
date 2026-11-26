@@ -94,6 +94,35 @@ def location_status(loc: str) -> str:
     return "no"                  # allowlist: unknown cities are treated as non-US
 
 
+US_COUNTRY = re.compile(r"^\s*(us|usa|u\.s\.a?\.?|united states( of america)?)\s*$", re.I)
+
+
+def with_country(location: str, country: str | None) -> str:
+    """The location with the site's own country field added when the text names no US place:
+    PL Marketing's Workday "Corporate Office Newport" + "United States of America". Country codes
+    other than the US add nothing (an unknown place already counts as non-US)."""
+    location = location or ""
+    country = (country or "").strip()
+    if US_COUNTRY.match(country):
+        country = "United States"
+    elif len(country) <= 3:
+        return location
+    if not country or location_status(location) == "us" or country.lower() in location.lower():
+        return location
+    return f"{location}, {country}" if location.strip() else country
+
+
+def place_unknown(location: str) -> bool:
+    """Names no place we know, US or not ("Corporate Office Newport"): the site's country decides."""
+    return location_status(location) == "no" and not NON_US.search(location or "") and not any(
+        COUNTRY_CODE.match(p) for p in (location or "").split(";"))
+
+
+def title_passes(job: Job) -> bool:
+    """The title rules alone: would this job match if it were in the US?"""
+    return classify(Job(job.job_id, job.company, job.title, "United States", "", None, job.source, job.tier))[0]
+
+
 def classify(job: Job) -> tuple[bool, list[str]]:
     """Returns (keep, flags). A dropped job's flags hold why: ["title: Sr"] (the word that dropped it),
     ["intern/co-op"], ["non-US location"], or ["title"] (not an engineering role)."""

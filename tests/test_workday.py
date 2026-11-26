@@ -261,3 +261,26 @@ def test_search_at_the_2000_cap_is_partial(monkeypatch):
     small = dict(CO)
     asyncio.run(workday.fetch(mock([SEARCH], []), small))
     assert "partial" not in small
+
+
+def test_a_place_without_state_or_country_uses_workdays_country(monkeypatch):
+    # PL Marketing (Nov 2026): "Corporate Office Newport", detail country "United States of America"
+    monkeypatch.setattr(workday, "DELAY", 0)
+    plm = posting("Software Engineer", "Corporate Office Newport", "/job/Corporate-Office-Newport/Software-Engineer_JR104830", "JR104830")
+    sales = posting("Surge Team Reset Merchandiser", "League City Texas", "/job/League-City-Texas/Merch_JR1", "JR1")
+    detail = {"jobPostingInfo": {"jobReqId": "JR104830", "location": "Corporate Office Newport",
+                                 "country": {"descriptor": "United States of America"}, "jobDescription": "<p>Build apps.</p>"}}
+    calls = []
+
+    def handler(req):
+        calls.append((req.method, req.url.path))
+        if req.method == "POST":
+            return httpx.Response(200, json={"jobPostings": [plm, sales] if json.loads(req.content)["offset"] == 0 else []})
+        return httpx.Response(200, json=detail)
+    co = {"company": "PL Marketing", "slug": "plmarketing|wd12|PLM", "tier": "2"}
+    jobs = asyncio.run(workday.fetch(httpx.AsyncClient(transport=httpx.MockTransport(handler)), co))
+    j = next(j for j in jobs if j.title == "Software Engineer")
+    assert j.location == "Corporate Office Newport, United States"
+    from recon.filters import classify
+    assert classify(j)[0]
+    assert [c[1] for c in calls if c[0] == "GET"] == ["/wday/cxs/plmarketing/PLM/job/Corporate-Office-Newport/Software-Engineer_JR104830"]

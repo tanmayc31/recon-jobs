@@ -1,6 +1,7 @@
 import re
 
 import httpx
+from recon.filters import with_country
 from recon.models import Job
 from recon.text import strip_html
 
@@ -36,7 +37,8 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             job_id=f"ashby:{company['slug']}:{j['id']}",
             company=company["company"],
             title=j.get("title", ""),
-            location=j.get("location", "") or "",
+            location=with_country(j.get("location", "") or "",
+                                  ((j.get("address") or {}).get("postalAddress") or {}).get("addressCountry")),
             url=job_url(company["slug"], j),
             posted_at=j.get("publishedAt"),
             source="ashby",

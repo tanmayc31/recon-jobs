@@ -7,7 +7,7 @@ import asyncio
 import re
 
 import httpx
-from recon.filters import classify
+from recon.filters import classify, place_unknown, title_passes, with_country
 from recon.models import Job
 from recon.text import strip_html
 
@@ -87,7 +87,9 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             description="",
         )
         # known jobs keep their stored verdict, so skip the detail request
-        if job.job_id not in company.get("known", ()) and classify(job)[0]:
+        # ...and a place we can't read ("Corporate Office Newport") gets the detail too: its country decides
+        if job.job_id not in company.get("known", ()) and (
+                classify(job)[0] or (place_unknown(job.location) and title_passes(job))):
             await add_detail(client, api, p["externalPath"], job, tenant)
         jobs.append(job)
     return jobs
@@ -195,7 +197,8 @@ async def add_detail(client, api, path, job, tenant):
     if info.get("jobReqId"):
         job.job_id = f"workday:{tenant}:{info['jobReqId']}"   # same req across reposts
     places = [info.get("location")] + (info.get("additionalLocations") or [])
-    job.location = "; ".join(p for p in places if p) or job.location
+    job.location = with_country("; ".join(p for p in places if p) or job.location,
+                                (info.get("country") or {}).get("descriptor"))
     job.url = info.get("externalUrl") or job.url
     job.posted_at = info.get("postedOn") or job.posted_at
     job.description = strip_html(info.get("jobDescription"))

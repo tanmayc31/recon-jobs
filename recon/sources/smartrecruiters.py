@@ -10,7 +10,7 @@ import asyncio
 
 import httpx
 
-from recon.filters import classify
+from recon.filters import classify, with_country
 from recon.models import Job
 from recon.text import strip_html
 
@@ -38,6 +38,7 @@ async def details(client: httpx.AsyncClient, slug: str, pid: str) -> dict | None
 def location(p: dict) -> str:
     loc = p.get("location") or {}
     full = loc.get("fullLocation") or ", ".join(x for x in (loc.get("city"), loc.get("region"), loc.get("country")) if x)
+    full = with_country(full, loc.get("country"))
     return f"{full} (Remote)" if loc.get("remote") else full
 
 

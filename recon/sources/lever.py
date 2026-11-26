@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import httpx
+from recon.filters import with_country
 from recon.models import Job
 from recon.text import strip_html
 
@@ -23,7 +24,7 @@ async def fetch(client: httpx.AsyncClient, company: dict) -> list[Job]:
             job_id=f"lever:{company['slug']}:{j['id']}",
             company=company["company"],
             title=j.get("text", ""),
-            location=(j.get("categories") or {}).get("location", ""),
+            location=with_country((j.get("categories") or {}).get("location", ""), j.get("country")),
             url=j.get("hostedUrl", ""),
             posted_at=posted,
             source="lever",

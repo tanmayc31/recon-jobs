@@ -143,3 +143,13 @@ def test_full_state_names_are_us():
     assert is_match(job("Software Engineer", "Plano, Texas"))
     assert is_match(job("Software Engineer", "Columbus, Ohio; Pittsburgh, Pennsylvania"))
     assert not is_match(job("Software Engineer", "Toronto, Ontario"))
+
+
+def test_the_sites_country_fills_in_a_place_we_cant_read():
+    from recon.filters import place_unknown, with_country
+    assert with_country("Corporate Office Newport", "United States of America") == "Corporate Office Newport, United States"
+    assert with_country("Remote - Continental US", "United States") == "Remote - Continental US"   # Granted (Ashby): already US
+    assert with_country("Remote", "US") == "Remote, United States"                                  # Lever's code
+    assert with_country("Krakow", "PL") == "Krakow"                                                 # other codes add nothing
+    assert with_country("Toronto, Ontario", "Canada") == "Toronto, Ontario, Canada"
+    assert place_unknown("Corporate Office Newport") and not place_unknown("Bengaluru") and not place_unknown("Austin, TX")
