@@ -87,6 +87,11 @@ CREATE TABLE IF NOT EXISTS companies (
     first_run_at  TEXT                -- jobs found in this first run are backlog, not new
 );
 """, """
+CREATE TABLE IF NOT EXISTS chores (
+    name          TEXT PRIMARY KEY,   -- a timed job (recon/chores.py): weekly recheck, open checks
+    last_run_at   TEXT
+);
+""", """
 CREATE TABLE IF NOT EXISTS company_runs (
     company       TEXT PRIMARY KEY,
     last_run_at   TEXT                -- the last time a run started this company (main.rotate)
@@ -244,6 +249,16 @@ class Store:
         (description fetch failed) are left out, so the next run fetches and judges them."""
         return {r[0]: (r[1], r[2], r[3]) for r in self.execute(
             "SELECT job_id, decision, reason, min_years FROM jobs WHERE decision <> 'unverified'").fetchall()}
+
+    def claim(self, name: str, since: str, at: str) -> bool:
+        """Mark chore `name` as run at `at` unless it already ran at or after `since`. True: it's
+        yours to run. One statement, so two lanes starting together can't both claim it."""
+        row = self.execute(
+            "INSERT INTO chores (name, last_run_at) VALUES (?, ?) ON CONFLICT (name) DO UPDATE"
+            " SET last_run_at = EXCLUDED.last_run_at WHERE chores.last_run_at < ? RETURNING name",
+            (name, at, since)).fetchone()
+        self.commit()
+        return row is not None
 
     def last_runs(self) -> dict[str, str]:
         """company -> when a run last started it (never started: missing)."""

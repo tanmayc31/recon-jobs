@@ -6,18 +6,24 @@ name: recon
 #   3-other    Tier 3 Greenhouse/Lever/Ashby        every 3 h
 #   3-workday  Tier 3 Workday                       every 3 h (~350 of 635 companies a run,
 #                                                    longest-waiting first: each every ~6 h)
-# Weekly recheck (Sunday 11pm ET, GitHub cron): all three lanes with --recheck, so new
-# filter rules reach old jobs. Workday rechecks again 4 h later: one run reaches about half its
-# companies, and the second starts with the ones the first didn't reach. Daily open check (GitHub cron): gone jobs leave New/Backlog/Later;
-# Best bets and New are checked every 3 hours, so a dead job leaves before you click it.
+# Timed chores ride on those lanes (recon/chores.py; GitHub's own schedule ran hours late or not at
+# all). The gate job asks which are due by the clock and claims them in the database, so each runs
+# once whichever trigger comes first:
+#   weekly recheck   Monday from 04:00 UTC (Sunday night US): each lane's next run uses --recheck,
+#                    so new filter rules reach old jobs; Workday again from 08:00 (one run reaches
+#                    part of its companies; rotation starts the second with the ones it missed)
+#   open check       daily from 10:00 UTC, the 1-2 lane: gone jobs leave New/Backlog/Later
+#   best open check  every 3 hours, the 1-2 lane: Best bets and New, so a dead job leaves before you click it
+# GitHub's schedule below is only a backup: it runs the same gate, which finds the chores claimed.
 # AI judge: after each normal 1-2 run, scores up to 48 unjudged matches from any lane,
 # 6 per Gemini request.
 on:
   schedule:
-    - cron: "0 4 * * 1"      # weekly recheck: Monday 04:00 UTC = Sunday night US
-    - cron: "0 8 * * 1"      # weekly recheck, Workday's second half
-    - cron: "0 10 * * *"     # daily open check: 10:00 UTC = early morning US
-    - cron: "30 */3 * * *"   # Best bets and New open check, every 3 hours
+    # backup only: the gate does nothing if the lanes already ran these chores
+    - cron: "15 4 * * 1"     # weekly recheck
+    - cron: "15 8 * * 1"     # weekly recheck, Workday's second pass
+    - cron: "15 10 * * *"    # daily open check
+    - cron: "45 */3 * * *"   # Best bets and New open check
   workflow_dispatch:          # cron-job.org and the manual "Run workflow" button
     inputs:
       lane:
@@ -34,14 +40,39 @@ permissions:
   contents: read
 
 jobs:
+  gate:
+    # which timed chores this run does (prints only true/false); if it fails, lanes still run as usual
+    if: github.event_name == 'schedule' || contains(fromJSON('["1-2", "3-other", "3-workday"]'), inputs.lane)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      recheck_12: ${{ steps.due.outputs.recheck_12 }}
+      recheck_other: ${{ steps.due.outputs.recheck_other }}
+      recheck_workday: ${{ steps.due.outputs.recheck_workday }}
+      open_check: ${{ steps.due.outputs.open_check }}
+      open_check_best: ${{ steps.due.outputs.open_check_best }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - id: due
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          LANE: ${{ inputs.lane || 'all' }}
+        run: python -m recon.chores --lane "$LANE" | tee -a "$GITHUB_OUTPUT"
+
   tier-1-2:
-    if: github.event.schedule == '0 4 * * 1' || inputs.lane == '1-2'
+    needs: gate
+    if: ${{ !cancelled() && (inputs.lane == '1-2' || needs.gate.outputs.recheck_12 == 'true') }}
     uses: ./.github/workflows/recon-lane.yml
     with:
       lane: "1-2"
       args: "--tiers 1,2"
       browser: true
-      recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
+      recheck: ${{ inputs.recheck == true || needs.gate.outputs.recheck_12 == 'true' }}
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
@@ -50,22 +81,24 @@ jobs:
       JOBRIGHT_SENDER: ${{ secrets.JOBRIGHT_SENDER }}
 
   tier-3-other:
-    if: github.event.schedule == '0 4 * * 1' || inputs.lane == '3-other'
+    needs: gate
+    if: ${{ !cancelled() && (inputs.lane == '3-other' || needs.gate.outputs.recheck_other == 'true') }}
     uses: ./.github/workflows/recon-lane.yml
     with:
       lane: "3-other"
       args: "--tiers 3 --ats greenhouse,lever,ashby"
-      recheck: ${{ github.event.schedule == '0 4 * * 1' || inputs.recheck == true }}
+      recheck: ${{ inputs.recheck == true || needs.gate.outputs.recheck_other == 'true' }}
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
   tier-3-workday:
-    if: github.event.schedule == '0 4 * * 1' || github.event.schedule == '0 8 * * 1' || inputs.lane == '3-workday'
+    needs: gate
+    if: ${{ !cancelled() && (inputs.lane == '3-workday' || needs.gate.outputs.recheck_workday == 'true') }}
     uses: ./.github/workflows/recon-lane.yml
     with:
       lane: "3-workday"
       args: "--tiers 3 --ats workday"
-      recheck: ${{ github.event.schedule == '0 4 * * 1' || github.event.schedule == '0 8 * * 1' || inputs.recheck == true }}
+      recheck: ${{ inputs.recheck == true || needs.gate.outputs.recheck_workday == 'true' }}
     secrets:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
@@ -73,7 +106,8 @@ jobs:
     # daily: every job in New, Backlog and Later is checked through its site's API (Workday detail,
     # Greenhouse/Lever job, Ashby board, amazon.jobs page), job-list jobs on company sites in a
     # browser; the gone ones are closed
-    if: github.event.schedule == '0 10 * * *'
+    needs: gate
+    if: needs.gate.outputs.open_check == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -94,7 +128,8 @@ jobs:
 
   open-check-best:
     # every 3 hours: the jobs you open first (Best bets, New), same checks as the daily one
-    if: github.event.schedule == '30 */3 * * *'
+    needs: gate
+    if: needs.gate.outputs.open_check_best == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -149,9 +184,9 @@ jobs:
         run: python -m recon.prep
 
   judge:
-    needs: tier-1-2
+    needs: [gate, tier-1-2]
     # still judge when the fetch failed (the queue is in the database); never on rechecks
-    if: ${{ !cancelled() && inputs.lane == '1-2' && !inputs.recheck }}
+    if: ${{ !cancelled() && inputs.lane == '1-2' && !inputs.recheck && needs.gate.outputs.recheck_12 != 'true' }}
     concurrency:
       group: recon-judge
       cancel-in-progress: false

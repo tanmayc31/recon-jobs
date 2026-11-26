@@ -48,8 +48,9 @@ applies to jobs. Everything below fits in free tiers.
    `https://api.github.com/repos/<you>/<repo>/actions/workflows/recon.yml/dispatches` with headers
    `Authorization: Bearer <token>`, `Accept: application/vnd.github+json` and body
    `{"ref":"main","inputs":{"lane":"1-2"}}`. Lanes: `1-2` every 30 minutes, `3-other` every 3
-   hours, `3-workday` every 6 hours. The weekly recheck and the daily open check run on GitHub's
-   own schedule.
+   hours, `3-workday` every 3 hours. The weekly recheck, the daily open check and the 3-hourly
+   Best bets check ride on those runs by time of day (`recon/chores.py`), once each per period;
+   GitHub's own schedule is only a backup.
 9. **Companies**: `config/companies.csv` lists the boards (company, ats, slug, tier). Tier 1-2 run
    every 30 minutes; Tier 3 less often. Add or remove rows; `python -m recon.detect <slug>` tells
    you which board a company uses, and "Add a company" below has the formats.
