@@ -1,6 +1,6 @@
 import pytest
 
-from recon import linkcheck
+from recon import discover, linkcheck
 
 
 @pytest.fixture(autouse=True)
@@ -14,3 +14,7 @@ def every_job_is_open(monkeypatch):
         return []
     monkeypatch.setattr(linkcheck, "check_open", check_open)
     monkeypatch.setattr(linkcheck, "gone_now", gone_now)
+
+    async def verify(client, sem, c):   # a board found in a job list: no network, it "works"
+        return True
+    monkeypatch.setattr(discover, "verify", verify)

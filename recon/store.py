@@ -87,6 +87,14 @@ CREATE TABLE IF NOT EXISTS companies (
     first_run_at  TEXT                -- jobs found in this first run are backlog, not new
 );
 """, """
+CREATE TABLE IF NOT EXISTS found_boards (
+    company       TEXT PRIMARY KEY,   -- a supported board a job list surfaced (recon/discover.py),
+    ats           TEXT,               -- scanned like a companies.csv row: CI can't commit to the repo
+    slug          TEXT,
+    tier          TEXT,
+    added_at      TEXT
+);
+""", """
 CREATE TABLE IF NOT EXISTS chores (
     name          TEXT PRIMARY KEY,   -- a timed job (recon/chores.py): weekly recheck, open checks
     last_run_at   TEXT
@@ -249,6 +257,15 @@ class Store:
         (description fetch failed) are left out, so the next run fetches and judges them."""
         return {r[0]: (r[1], r[2], r[3]) for r in self.execute(
             "SELECT job_id, decision, reason, min_years FROM jobs WHERE decision <> 'unverified'").fetchall()}
+
+    def found_boards(self) -> list[dict]:
+        rows = self.execute("SELECT company, ats, slug, tier FROM found_boards ORDER BY added_at").fetchall()
+        return [{"company": c, "ats": a, "slug": s, "tier": t} for c, a, s, t in rows]
+
+    def add_found_boards(self, boards: list[dict]):
+        self.executemany("INSERT INTO found_boards (company, ats, slug, tier, added_at) VALUES (?, ?, ?, ?, ?)"
+                         " ON CONFLICT (company) DO NOTHING",
+                         [(b["company"], b["ats"], b["slug"], str(b["tier"]), now()) for b in boards])
 
     def claim(self, name: str, since: str, at: str) -> bool:
         """Mark chore `name` as run at `at` unless it already ran at or after `since`. True: it's

@@ -101,7 +101,7 @@ SirenOpt,greenhouse,sirenopt,3
 CLEAR,greenhouse,clear,3
 Agilent Technologies,workday,agilent|wd5|Agilent_Student_Careers,3
 AeroVironment,workday,avav|wd1|avav,3
-KLA,workday,kla|wd1|annarbor,3
+KLA,workday,kla|wd1|UR,3
 Aurelian,ashby,aurelian,3
 GlobalFoundries,workday,globalfoundries|wd1|External,3
 Chalk,ashby,chalk,3
@@ -266,7 +266,7 @@ Redgate,ashby,red-gate,3
 Parallel Wireless,lever,parallelwireless,3
 Ryan,workday,ryan|wd1|RyanCareers,3
 Integrate,ashby,integrate,3
-Allstate,workday,allstate|wd5|sourcing_event,3
+Allstate,workday,allstate|wd5|allstate_careers,3
 Patreon,ashby,patreon,3
 Inversion Space,greenhouse,inversionspace,3
 Amplify,ashby,amplify,3
@@ -376,7 +376,7 @@ GE Vernova,workday,gevernova|wd5|vernova_externalsite,3
 GoFundMe,greenhouse,gofundme,3
 Zurn Elkay Water Solutions,workday,elkay|wd1|Elkay_External,3
 C3.ai,greenhouse,c3ascend,3
-Watts Water,workday,wattswater|wd5|Intern-External,3
+Watts Water,workday,wattswater|wd5|External,3
 Altar'd State,workday,standoutforgood|wd12|StandOutForGood,3
 Xcel Energy,workday,xcelenergy|wd1|External,3
 RF-SMART,greenhouse,rfsmart,3
@@ -469,7 +469,7 @@ Genworth Financial,workday,gnw|wd1|GNW,3
 Enact Mortgage Insurance,workday,gnw|wd1|enact_mi,3
 3M,workday,3m|wd1|Search,3
 Oshkosh,workday,oshkoshcorporation|wd5|Oshkosh,3
-National Information Solutions Cooperative,greenhouse,testnisc,3
+National Information Solutions Cooperative,greenhouse,nisc,3
 Ketjen,workday,albemarle|wd5|ketjenexternal,3
 Barnes & Thornburg,ashby,barnes,3
 Stand Together,lever,standtogether,3
@@ -4003,3 +4003,113 @@ Handshake,ashby,handshake,2
 Granted,ashby,granted,2
 Judi Health,greenhouse,judihealth,2
 PL Marketing,workday,plmarketing|wd12|PLM,2
+Zefr,ashby,zefr,2
+Parallel Web Systems,ashby,parallel,2
+Mach9,ashby,mach9,3
+Pendar Technologies,greenhouse,pendartechnologies,2
+Worldscape Technology,lever,worldscape-technology,3
+Anori,ashby,Anori,3
+Illinois Tool Works,workday,itw|wd5|External,3
+Nextpower,workday,nextracker|wd5|nextpower_careers,3
+Kobalt Labs,ashby,Kobalt Labs,3
+ReliaQuest,workday,reliaquest|wd5|ReliaQuest_Careers,3
+RAND Corporation,workday,rand|wd5|External_Career_Site,2
+BlueCross BlueShield of Tennessee,workday,bcbst|wd1|external,2
+Triumph Arcade,ashby,triumph-arcade,3
+Tank Payments,ashby,tank-payments,3
+Metron,greenhouse,metron,3
+Chevron Corporation,workday,chevron|wd5|University,3
+Cadence Campus,workday,cadence|wd1|University_Talent_NCG,2
+Early Warning,workday,earlywarning|wd5|earlywarningcareers,3
+DraftKings Campus,workday,draftkings|wd1|campus_career_portal,2
+Globus Medical,workday,globusmedical|wd5|GMED_Careers,3
+Redhorse Corporation,lever,redhorsecorp,2
+Travelers,workday,travelers|wd5|External,3
+Snap Finance,workday,snapfinance|wd1|snap_external_careers,3
+Allied World,workday,awac|wd108|AlliedWorld_Careers,2
+Torch Technologies,workday,starfish|wd501|Careers,2
+Synergy ECP,lever,synergyecp,3
+Stoke Space,greenhouse,stokespacetechnologies,3
+Lumos (lumos.com),ashby,lumos,2
+Modern Intelligence,lever,ModernIntelligence,3
+Comscore,workday,comscore|wd5|External,3
+Northeastern University,workday,northeastern|wd1|careers,3
+Takt,ashby,takt,3
+TextNow,greenhouse,textnowinc,3
+CME Group,workday,cmegroup|wd1|cme_careers,2
+Allegion,workday,allegion|wd5|careers,2
+Iowa State University,workday,isu|wd1|iowastatejobs,2
+SBA Communications,workday,sbasite|wd5|sba_communications_careers,2
+Saab,workday,saabusa|wd1|Saab_careers,2
+Varsity Brands,workday,varsitybrands|wd503|ExternalCareerSite,3
+ERG,lever,erg,3
+People Culture Talent,ashby,people-culture-talent,3
+FIS,workday,fis|wd5|SearchJobs,2
+Idler,ashby,idler,3
+Valinor,ashby,valinor,3
+Tenet3,greenhouse,tenet3,3
+Kemper,workday,kemper|wd5|Kemper_Careers,2
+SEP,lever,sep,3
+Cisive,workday,cisive|wd108|Cisive,2
+Las Vegas Sands,workday,sands|wd1|sands_careers,2
+R1 RCM,workday,r1rcm|wd1|R1RCM,3
+Elveo,ashby,Elveo,3
+Spectral Labs,ashby,Spectral Labs,3
+Star Catcher,greenhouse,star-catcher,3
+Castelion,greenhouse,castelioncorporation,3
+First Due,greenhouse,localitymediallcdbafirstdue,3
+TrellisWare Technologies,greenhouse,trelliswaretechnologies-newgrads,3
+Madhive,ashby,madhive,3
+Arva Intelligence,greenhouse,arvaintelligence,2
+Prelim,ashby,prelim,3
+Trunk Tools,ashby,Trunk Tools,3
+Agile Defense,lever,agile-defense,3
+Artera Healthcare,lever,artera-2,3
+Direct Supply,workday,directsupply|wd501|direct-supply-careers,2
+Build AI,ashby,build-ai,3
+Invesco,workday,invesco|wd1|IVZ,3
+Fantom,lever,fantom-corporation,2
+Ketch,lever,Ketch,3
+Machina Cognita Technologies,ashby,machinacognita,2
+Humanoid,ashby,humanoid,2
+CDK Global,workday,cdk|wd1|CDK,3
+Humble Robotics,lever,humble-robotics,3
+Ande,ashby,ande,2
+Fab2,ashby,Fab2,2
+Discernis,ashby,Discernis,2
+Gradient Robotics,ashby,gradientrobotics,3
+Generate Capital,ashby,generate,2
+Isembard,ashby,isembard,2
+Monogram,ashby,monogram,3
+Nexus Intelligence,ashby,nexus-intelligence,3
+Pelico,ashby,Pelico,3
+RoadRunner,ashby,Roadrunner,3
+Veritus,ashby,veritus,3
+Brillio,lever,brillio-2,3
+Hatch IT,lever,hatchit,3
+Emerald AI,ashby,emerald-ai,3
+General Translation,ashby,generaltranslation,3
+Foundation Health,ashby,foundationhealthcareers,3
+Nova Talent,ashby,nova-talent,3
+Oligo Space,ashby,oligo,3
+Centific,workday,centific|wd1|Centific_Global,3
+Smile Digital Health,lever,smiledigitalhealth,2
+Vinik Sports Group,workday,vsg|wd1|VSG,2
+Axcelis Technologies,workday,axcelis|wd1|Axcelis,3
+Viridien,workday,cgg|wd103|viridiencareers,3
+Viavi Solutions,workday,viavisolutions|wd1|careers,3
+CDPHP,workday,lthc|wd1|CDPHPCareers,2
+Bracco,workday,bracco|wd103|BraccoCareers,2
+Chamberlain Group,workday,chamberlain|wd1|Chamberlain_Group,2
+Frost Bank,workday,frostbank|wd5|External,2
+ZT Systems,workday,connect|wd1|ztsystemscareers,2
+Northwest Bank,workday,northwest|wd1|Northwest_Careers,2
+Freedom Technology Solutions Group,greenhouse,freedomconsulting,3
+Within AI,ashby,within.ai,3
+Faropoint,greenhouse,faropoint,2
+Slate Auto,workday,recar|wd108|SLATEcareers,2
+Deploy (Hive AI),lever,hive,3
+Mural Pay,ashby,careers.mural,3
+Nationwide,workday,nationwide|wd1|Nationwide_Career,2
+American Family Insurance,workday,amfam|wd1|Careers,2
+Inmar Intelligence,workday,inmar|wd1|inmarcareers,2

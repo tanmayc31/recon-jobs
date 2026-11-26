@@ -62,6 +62,12 @@ def load_companies(path: Path = COMPANIES, referrals: Path = REFERRALS) -> list[
     return companies
 
 
+def with_found(companies: list[dict], found: list[dict]) -> list[dict]:
+    """companies.csv plus the boards job lists surfaced (recon/discover.py), minus any already listed."""
+    names = {c["company"].lower() for c in companies}
+    return companies + [dict(b, referral="") for b in found if b["company"].lower() not in names]
+
+
 def rotate(companies: list[dict], last: dict[str, str]) -> list[dict]:
     """Companies waited on longest first (never started: first of all), random among equals. When
     the time budget runs out, the ones left wait less than a run cycle: the Tier 3 Workday lane
@@ -112,13 +118,14 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     stored = store.known_jobs()
     known = {} if recheck else stored
     seen = store.seen_companies()
-    companies = [c for c in load_companies()
+    everyone = with_found(load_companies(), store.found_boards())
+    companies = [c for c in everyone
                  if (not tiers or int(c["tier"]) in tiers) and (not ats or c["ats"] in ats)]
     for c in companies:
         c["known"] = known   # adapters skip description requests for these job IDs
     if any(c["ats"] == "listings" for c in companies):
         list_ids, covered, urls = store.list_ids(), store.covered_keys(), store.job_urls()
-        direct = {c["company"].lower() for c in load_companies() if c["ats"] in COMPLETE}
+        direct = {c["company"].lower() for c in everyone if c["ats"] in COMPLETE}
         for c in companies:
             if c["ats"] == "listings":
                 c["list_ids"], c["covered"], c["urls"], c["direct"] = list_ids, covered, urls, direct
@@ -200,6 +207,17 @@ async def run(tiers: set[int] | None = None, recheck: bool = False, ats: set[str
     store.mark_runs([c["company"] for c in companies if c.get("reached")])
     store.commit()
     store.close()
+    # a job list surfaced a supported board Recon doesn't scan: scan it from now on
+    listed_jobs = [j for _, j in all_jobs if j.via == "list"]
+    if listed_jobs:
+        from recon import discover   # imports main
+        found = await discover.add_found(listed_jobs, everyone, now()[:10])
+        if found:
+            store = Store(url=os.environ.get("DATABASE_URL"))
+            store.add_found_boards(found)
+            store.commit()
+            store.close()
+            print(f"New boards from job lists: {len(found)} (Tier 2: {sum(1 for b in found if b['tier'] == 2)})")
     gone_now = []
     if missing:
         from recon import linkcheck   # imports main

@@ -349,3 +349,33 @@ def test_a_run_records_which_companies_it_started(tmp_path, monkeypatch):
     s.mark_runs(["A"])
     s.commit()
     assert s.last_runs()["A"] >= first["A"] and s.last_runs()["B"] == first["B"]
+
+
+def test_a_job_list_surfacing_an_untracked_board_adds_it(tmp_path, monkeypatch, capsys):
+    # Handshake's FDE came through Simplify on jobs.ashbyhq.com/handshake before Recon scanned Handshake
+    from recon.models import Job
+    lst = Job("list:sa-1", "Handshake", "Forward Deployed Engineer", "San Francisco, CA",
+              "https://jobs.ashbyhq.com/handshake/52be2db3-794d-466e-b3be-cae5d1ab5232", "2026-11-20", "ashby", 2,
+              "Build things.", source_ids="sa-1", via="list")
+    old = Job("list:sa-2", "Mach9", "Software Engineer - 3D Graphics", "Pittsburgh, PA",
+              "https://jobs.ashbyhq.com/mach9/abc", "2020-01-01", "ashby", 2, "Build things.", source_ids="sa-2", via="list")
+    tracked = Job("list:sa-3", "Co", "Software Engineer", "New York, NY", "https://boards.greenhouse.io/co/jobs/1",
+                  None, "greenhouse", 2, "Build things.", source_ids="sa-3", via="list")
+    run_once(tmp_path, monkeypatch, [lst, old, tracked])
+    found = Store(tmp_path / "t.db").found_boards()
+    assert found == [{"company": "Handshake", "ats": "ashby", "slug": "handshake", "tier": "2"},
+                     {"company": "Mach9", "ats": "ashby", "slug": "mach9", "tier": "3"}]   # no new-grad post in 30 days
+    assert "New boards from job lists: 2 (Tier 2: 1)" in capsys.readouterr().out
+    # the next run scans them like companies.csv rows
+    assert {c["company"] for c in main.with_found(main.load_companies(), found)} == {"Co", "Handshake", "Mach9"}
+
+
+def test_restricted_boards_and_aggregators_are_not_added():
+    from recon import discover
+    from recon.models import Job
+    def lj(url, co="X"):
+        return Job("list:1", co, "Software Engineer", "Austin, TX", url, None, "list", 2, via="list")
+    jobs = [lj("https://thehartford.wd5.myworkdayjobs.com/Careers_Restricted/job/x", "The Hartford"),
+            lj("https://jobs.lever.co/jobgether/123", "Jobgether"),
+            lj("https://sands.wd1.myworkdayjobs.com/referral_sands_careers/job/y", "Las Vegas Sands")]
+    assert discover.found_in(jobs, [], "2026-11-26") == []

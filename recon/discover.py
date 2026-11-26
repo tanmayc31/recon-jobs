@@ -17,6 +17,7 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from urllib.parse import unquote
 
 import httpx
@@ -60,6 +61,41 @@ def parse_board(url: str) -> tuple[str, str] | None:
             return ats, f"{tenant}|{wd}|{site}"
         return ats, unquote(m.group(1))
     return None
+
+
+# boards not open to everyone ("Careers_Restricted", "JCI_Confidential", "referral_sands_careers"),
+# and job aggregators that post on a board of their own
+RESTRICTED = re.compile(r"referral|confidential|private|internal|sourced|sourcing|targeted|restricted|subsidiary", re.I)
+AGGREGATORS = {"jobgether"}
+MAX_FOUND = 10      # new boards checked per run; the rest wait for the next
+
+
+def found_in(jobs: list, existing: list[dict], today: str) -> list[dict]:
+    """Supported boards behind job-list jobs that Recon doesn't scan yet: Tier 2 when the job was
+    posted in the last 30 days (or the list gives no date; it just surfaced), else Tier 3."""
+    since = (datetime.fromisoformat(today) - timedelta(days=30)).date().isoformat()
+    out = []
+    for j in jobs:
+        b = parse_board(j.url or "")
+        if not b:
+            continue
+        ats, slug = b
+        if (ats == "workday" and RESTRICTED.search(slug.split("|")[2])) or slug.lower() in AGGREGATORS:
+            continue
+        out.append({"company": j.company.strip(), "ats": ats, "slug": slug,
+                    "tier": 2 if not j.posted_at or j.posted_at[:10] >= since else 3})
+    return dedupe(out, existing)
+
+
+async def add_found(jobs: list, existing: list[dict], today: str) -> list[dict]:
+    """found_in, checked against each board's public API (a few per run). The working ones."""
+    fresh = found_in(jobs, existing, today)[:MAX_FOUND]
+    if not fresh:
+        return []
+    async with httpx.AsyncClient(timeout=20, headers=HEADERS, follow_redirects=True) as client:
+        sem = asyncio.Semaphore(5)
+        ok = await asyncio.gather(*(verify(client, sem, c) for c in fresh))
+    return [c for c, good in zip(fresh, ok) if good]
 
 
 def key(ats: str, slug: str) -> tuple[str, str]:
