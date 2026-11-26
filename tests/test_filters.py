@@ -135,3 +135,11 @@ def test_any_state_code_after_a_comma_is_us():
 def test_drops_leader_titles():
     assert not is_match(job("Software Engineering Technical Leader", "San Jose, California, US"))   # Cisco, 8+ years
     assert is_match(job("Software Engineer, Leadership Development Program"))
+
+
+def test_full_state_names_are_us():
+    # State Street "SW Engineer I – Full Stack, Officer": Workday says "Burlington Massachusetts"
+    assert is_match(job("SW Engineer I - Full Stack - Officer", "Burlington Massachusetts"))
+    assert is_match(job("Software Engineer", "Plano, Texas"))
+    assert is_match(job("Software Engineer", "Columbus, Ohio; Pittsburgh, Pennsylvania"))
+    assert not is_match(job("Software Engineer", "Toronto, Ontario"))

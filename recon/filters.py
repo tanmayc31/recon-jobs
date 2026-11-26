@@ -36,7 +36,13 @@ US = re.compile(
     r"new york|nyc|san francisco|\bsf\b|seattle|\bsea\b|boston|austin|chicago|denver|atlanta|"
     r"los angeles|bay area|mountain view|palo alto|menlo park|sunnyvale|san jose|bellevue|"
     r"washington|cambridge|san diego|norfolk|kitsap|fayetteville|"
-    r"\b(ca|ny|wa|ma|tx|il|co|ga|nc|va|nj|or|az|ut|fl|pa|mi|md)\b",
+    r"\b(ca|ny|wa|ma|tx|il|co|ga|nc|va|nj|or|az|ut|fl|pa|mi|md)\b|"
+    # full state names: Workday's "Burlington Massachusetts" (State Street) read as non-US without them
+    r"\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|district of columbia|"
+    r"florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|"
+    r"massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|"
+    r"new jersey|new mexico|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|"
+    r"south carolina|south dakota|tennessee|texas|utah|vermont|virginia|wisconsin|wyoming)\b",
     re.I,
 )
 NON_US = re.compile(
