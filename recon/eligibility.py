@@ -56,6 +56,38 @@ BLOCKERS = {
 }
 
 
+# Citizenship or permanent residency, in any wording: Robinhood's "Position Restriction: This
+# position is restricted to US citizens or lawful permanent residents", "green card holders only",
+# "US persons only", "must be a U.S. citizen or permanent resident", "requires U.S. citizenship"
+_US = r"(?:u\.?\s?s\.?(?:\s?a\.?)?|united\s+states)"
+CITIZEN = re.compile(
+    rf"restricted\s+to\s+(?:{_US}\s+)?(?:citizens|persons|nationals)|"
+    rf"\b(?:{_US}\s+)?citizens?(?:hip)?\s*(?:,|or|and/or|/)\s*(?:a\s+|an\s+)?(?:lawful\s+|legal\s+)?permanent\s+residen(?:ts?|cy)|"
+    rf"green\s+card\s+holders?\s+only|only\s+[^.]{{0,40}}green\s+card\s+holders?|citizens?\s+(?:or|and)\s+green\s+card\s+holders?|"
+    rf"\b{_US}\s+(?:citizens?|persons?|nationals?)\s+only\b|"
+    rf"only\s+(?:open\s+to\s+|available\s+to\s+|consider\s+)?{_US}\s+(?:citizens|persons)|"
+    rf"(?:requires?|requiring)\s+(?:{_US}\s+)?citizenship|"
+    rf"must\s+(?:be|hold)\s+(?:a\s+)?{_US}\s+(?:citizen|national|person)|"
+    rf"must\s+have\s+{_US}\s+citizenship|"
+    rf"\b{_US}\s+citizenship\s+(?:is\s+)?(?:required|mandatory)",
+    re.I)
+# ...unless a visa is an alternative: ALS "must be a Citizen or Permanent Resident of the country you
+# are applying for, or either hold or be able to obtain a valid work visa"
+VISA_ALTERNATIVE = re.compile(r"[^.]{0,60}?\bor\b[^.]{0,80}\b(visa|work\s+(permit|authori[sz]ation))", re.I)
+
+
+# ...or it's about another country: Databricks' sanctions question "Citizen or permanent resident of
+# Cuba, Iran, North Korea, or Syria"
+OTHER_COUNTRY = re.compile(r"\s+of\s+(?!the\s+united\s+states|the\s+u\.?s\b|u\.?s\b|united\s+states|america)", re.I)
+_US_WORD = re.compile(_US, re.I)
+
+
+def citizenship_required(text: str) -> bool:
+    return any(not VISA_ALTERNATIVE.match(text, m.end())
+               and not (OTHER_COUNTRY.match(text, m.end()) and not _US_WORD.search(m.group(0)))
+               for m in CITIZEN.finditer(text))
+
+
 # TS/SCI in any form ("TS/SCI", "TS-SCI", "Top Secret/SCI") blocks even when "preferred":
 # it's only open to U.S. citizens
 TS_SCI = re.compile(r"\bts\s*[/-]?\s*sci\b|top\s+secret\s*[/-]\s*sci\b", re.I)
@@ -249,7 +281,12 @@ LADDER_BACK = 200
 # a degree substitute isn't an ask for someone with the degree: "In lieu of a degree, a combined
 # minimum of 5 years' education and/or experience"; "Bachelor's degree ... or 5+ years equivalent experience"
 IN_LIEU = re.compile(r"lieu\s+of\s+(a\s+)?(bachelor'?s?\s+)?degree[^.]{0,120}$", re.I)   # same clause, before it
-EQUIVALENT = re.compile(r"\s*(of\s+)?equivalent\b", re.I)   # "5+ years equivalent", not "years of experience or equivalent"
+EQUIVALENT = re.compile(r"\s*(of\s+)?equivalent\b", re.I)
+# The degree's length, not experience: Abbott "Bachelors Degree (± 16 years) in an Engineering ... Field"
+DEGREE_LENGTH = re.compile(r"degree\s*\(\s*[±~]?\s*$", re.I)
+# The no-degree rung after a degree ladder: Cox "Bachelor's degree and 2 years' experience ... or a
+# master's degree and up to 2 years' experience; or 6 years' experience in a related field"
+NO_DEGREE_RUNG = re.compile(r"[;,]?\s*\bor\s+(an?\s+)?$", re.I)   # "5+ years equivalent", not "years of experience or equivalent"
 
 
 def ladder_degree(text: str, m: re.Match, years: list[re.Match]) -> str | None:
@@ -281,10 +318,16 @@ def min_years(text: str) -> int | None:
         s = sentence(text, m)
         if SOFT_YEARS.search(ASIDE_LIST.sub("", s)) or IN_LIEU.search(text, max(m.start() - 150, 0), m.start()) or EQUIVALENT.match(text, m.end()):
             continue
+        if DEGREE_LENGTH.search(text, max(m.start() - 15, 0), m.start()):
+            continue
+        degree = ladder_degree(text, m, found)
+        if degree is None and NO_DEGREE_RUNG.search(text, max(m.start() - 8, 0), m.start()) and any(
+                d for n, d in asks):
+            continue   # "...; or 6 years' experience": what you need without the degrees above
         raw = m.group(1).lower()
         n = NUM_WORDS.get(raw) or int(raw)
         if 0 < n <= 20:
-            asks.append((n, ladder_degree(text, m, found)))
+            asks.append((n, degree))
     if not asks:
         return None
     ladder = {d for _, d in asks if d}
@@ -327,7 +370,7 @@ def check(text: str, title: str = "") -> tuple[bool, str | None, int | None, lis
     """Returns (ok, skip_reason, min_years, flags)."""
     text = text or ""
     flags = []
-    if TS_SCI.search(text) or (title and CLEARED_TITLE.search(title)):
+    if TS_SCI.search(text) or (title and CLEARED_TITLE.search(title)) or citizenship_required(text):
         return False, "citizenship/clearance", min_years(text), flags
     for reason, rx in BLOCKERS.items():
         found = list(rx.finditer(text))

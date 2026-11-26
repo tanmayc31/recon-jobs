@@ -340,3 +340,15 @@ def test_example_language_lists_are_not_gaps():
     # real Twitch Payments: a closed list
     assert language_gaps("Minimum qualifications: Proficient experience level in one or more of the following "
                          "language: Go, Ruby, Java, C++.") != []
+
+
+ROBINHOOD = ("Exceptional office experience with catered meals, events, and comfortable workspaces. Position "
+             "Restriction: This position is restricted to US citizens or lawful permanent residents In addition to "
+             "the base pay range listed below, this role is also eligible for bonus opportunities + equity + benefits.")
+
+
+def test_a_citizenship_restriction_is_a_veto_even_when_the_model_misses_it(tmp_path, monkeypatch):
+    # Robinhood "Software Engineer, Web, Government Products" reached Best bets with fit 81
+    s = setup(tmp_path, monkeypatch, [job(1, description=ROBINHOOD)])
+    asyncio.run(judge.run(limit=10, pace=0, transport=answering()))   # the model says citizenship: false
+    assert row(s, "greenhouse:co:1")[:2] == ("skip", "ai: citizenship/clearance")

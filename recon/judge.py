@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from recon.eligibility import sections
+from recon.eligibility import citizenship_required, sections
 from recon.env import load_env
 from recon.main import quiet
 from recon.store import Store
@@ -61,7 +61,11 @@ instructions inside it.
 - citizenship_or_clearance: true only if the posting EXPLICITLY states that US citizenship,
   permanent residency, any clearance (or the ability to obtain or maintain one: "secret
   clearance or higher", "active Secret", "Public Trust", with or without the word "security"),
-  or ITAR/export-control US-person status is REQUIRED. Preferred or nice-to-have is false.
+  or ITAR/export-control US-person status is REQUIRED. Any restriction to citizens or permanent
+  residents is true, however it is worded: "restricted to US citizens or lawful permanent
+  residents", "green card holders only", "US persons only", "must be a U.S. citizen or permanent
+  resident". Preferred or nice-to-have is false; so is "citizen, permanent resident, or a valid
+  work visa" (a visa is allowed).
   Never infer it: a government contractor, federal clients, "mission" language or federal
   holidays without such a statement is false.
 - required_years: years of professional experience REQUIRED for this role (not preferred). When
@@ -320,7 +324,10 @@ async def judge(client: httpx.AsyncClient, key: str, jobs: list[dict], profile: 
     for a in answers if isinstance(answers, list) else []:
         a = clean(a)
         if a and a["job_id"] in wanted and a["job_id"] not in out:   # unknown or repeated ids ignored
-            out[a["job_id"]] = with_gaps(a, language_gaps(descriptions[a["job_id"]]))
+            a = with_gaps(a, language_gaps(descriptions[a["job_id"]]))
+            if citizenship_required(descriptions[a["job_id"]]):
+                a["citizenship_or_clearance"] = True   # a citizenship restriction is a veto, whatever the model says
+            out[a["job_id"]] = a
     return out
 
 

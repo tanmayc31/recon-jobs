@@ -346,3 +346,54 @@ def test_a_preferred_inside_a_parenthetical_list_doesnt_soften_the_ask():
             "of the following: React, Angular v4+, NodeJS.")
     assert min_years(text) == 3
     assert min_years("Python experience. 5+ years of backend experience (preferred).") is None
+
+
+def test_citizenship_or_permanent_residency_restrictions_block():
+    # Robinhood "Software Engineer, Web, Government Products" (Menlo Park / New York), Nov 2026
+    robinhood = ("Position Restriction: This position is restricted to US citizens or lawful permanent residents "
+                 "In addition to the base pay range listed below, this role is also eligible for bonus opportunities.")
+    assert check(robinhood, "Software Engineer, Web, Government Products")[:2] == (False, "citizenship/clearance")
+    for text in ["This role is restricted to U.S. citizens.",
+                 "Open to US citizens or permanent residents only.",
+                 "Applicants must be U.S. citizens or green card holders.",
+                 "Green card holders only, please.",
+                 "You must be a U.S. citizen or permanent resident to apply.",
+                 "US persons only.",
+                 "Due to contract requirements, this position requires U.S. citizenship.",
+                 "Candidates must hold US citizenship or permanent residency.",
+                 "We can only consider US citizens for this role."]:
+        assert check(text)[:2] == (False, "citizenship/clearance"), text
+
+
+def test_work_authorization_or_a_visa_alternative_is_not_a_citizenship_block():
+    assert check("Candidates must be authorized to work in the United States.")[0]
+    # ALS: "Citizen or Permanent Resident ... or ... a valid work visa"
+    assert check("To be eligible to work at ALS you must be a Citizen or Permanent Resident of the country you "
+                 "are applying for, or either hold or be able to obtain a valid work visa.")[0]
+
+
+def test_a_sanctions_question_about_other_countries_is_not_a_citizenship_block():
+    # Databricks "Software Engineer New Grad" application questions
+    assert check("Note: This information will only be used to ensure compliance with U.S. sanctions and export "
+                 "controls. * Citizen or permanent resident of Cuba, Iran, North Korea, or Syria")[0]
+    # Trimble SRE: a US person, explained as citizen or permanent resident, still blocks
+    assert not check("Per FedRAMP and DoD requirements, you must be a verifiable US person on US soil (citizen or "
+                     "permanent resident, state or territory).")[0]
+
+
+def test_a_degree_length_is_not_years_of_experience():
+    # Abbott "Software Development Quality Engineer II"
+    text = ("Education Bachelors Degree (± 16 years) in an Engineering or Technical Field (OR) an equivalent "
+            "combination of education and work experience. Experience/Background Minimum 2 years 2–5+ years of "
+            "combined experience in software development and/or embedded systems applications")
+    assert min_years(text) == 2
+
+
+def test_the_no_degree_rung_of_a_ladder_doesnt_count():
+    # Cox "Software Engineer II" Min Qualifications
+    text = ("Min Qualifications Bachelor’s degree in a related discipline and 2 years’ experience in a related "
+            "field. The right candidate could also have a different combination, such as a master’s degree and up "
+            "to 2years’ experience; or 6 years’ experience in a related field Hands-on software development "
+            "experience with at least one of the following: Java, Python, JavaScript, or TypeScript.")
+    assert min_years(text) == 2
+    assert min_years("Minimum qualifications: 3+ years of backend experience, or 5 years of full-stack experience.") == 5
